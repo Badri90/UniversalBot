@@ -33,6 +33,7 @@ from telegram.ext import (
     ContextTypes,
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from dateutil.relativedelta import relativedelta
 
 import db
 
@@ -173,23 +174,38 @@ async def add_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def add_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
-    # /add_sub <telegram_id> <"название"> <дней> [посещений]
+    # /add_sub <telegram_id> "Название" <ДД.ММ.ГГГГ дата оплаты> [месяцев] [посещений]
     args = context.args
     if len(args) < 3:
         await update.message.reply_text(
-            'Формат: /add_sub <telegram_id> "Название" <дней> [посещений]'
+            'Формат: /add_sub <telegram_id> "Название" ДД.ММ.ГГГГ [месяцев] [посещений]\n'
+            'Пример: /add_sub 987654321 "Абонемент" 05.10.2026\n'
+            '(следующая оплата будет автоматически 05.11.2026)'
         )
         return
+
     telegram_id = int(args[0])
-    # название может быть в кавычках с пробелами — простое объединение всего кроме первого и двух последних
-    if len(args) >= 4 and args[-1].isdigit() and args[-2].isdigit():
-        title = " ".join(args[1:-2]).strip('"')
-        days = int(args[-2])
-        visits = int(args[-1])
-    else:
-        title = " ".join(args[1:-1]).strip('"')
-        days = int(args[-1])
-        visits = None
+
+    # ищем среди args дату в формате ДД.ММ.ГГГГ
+    date_idx = None
+    for i, a in enumerate(args[1:], start=1):
+        if a.count(".") == 2:
+            date_idx = i
+            break
+    if date_idx is None:
+        await update.message.reply_text("Не найдена дата оплаты в формате ДД.ММ.ГГГГ.")
+        return
+
+    try:
+        payment_date = datetime.strptime(args[date_idx], "%d.%m.%Y")
+    except ValueError:
+        await update.message.reply_text("Дата должна быть в формате ДД.ММ.ГГГГ, например 05.10.2026")
+        return
+
+    title = " ".join(args[1:date_idx]).strip('"')
+    rest = args[date_idx + 1:]
+    months = int(rest[0]) if len(rest) >= 1 and rest[0].isdigit() else 1
+    visits = int(rest[1]) if len(rest) >= 2 and rest[1].isdigit() else None
 
     client = db.get_client_by_telegram_id(telegram_id)
     if not client:
@@ -197,17 +213,47 @@ async def add_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Такого клиента нет. Сначала добавьте: /add_client <telegram_id> <ФИО>"
         )
         return
-    db.add_subscription(client["id"], title, days, visits)
+
+    db.add_subscription(client["id"], title, payment_date, months, visits)
+    next_due = payment_date + relativedelta(months=months)
     await update.message.reply_text(
-        f"Абонемент «{title}» на {days} дн. добавлен для {client['full_name']}."
+        f"Абонемент «{title}» для {client['full_name']} оформлен.\n"
+        f"Оплата: {payment_date.strftime('%d.%m.%Y')}\n"
+        f"Следующая оплата: {next_due.strftime('%d.%m.%Y')}"
     )
     try:
         await context.bot.send_message(
             telegram_id,
-            f"Вам оформлен абонемент «{title}» на {days} дней. Приятных тренировок!",
+            f"Вам оформлен абонемент «{title}». "
+            f"Следующая оплата: {next_due.strftime('%d.%m.%Y')}. Приятных тренировок!",
         )
     except Exception:
         logger.info("Не удалось уведомить клиента %s", telegram_id)
+
+
+async def due(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Админ-команда: кто должен оплатить в ближайшие 5 дней или уже просрочил."""
+    if not is_admin(update.effective_user.id):
+        return
+    rows = db.list_payment_status(days_ahead=5)
+    if not rows:
+        await update.message.reply_text("Ни у кого нет скорых или просроченных оплат.")
+        return
+    now = datetime.now()
+    overdue_lines, soon_lines = [], []
+    for s in rows:
+        end = datetime.fromisoformat(s["end_date"])
+        line = f"{s['full_name']} — {end.strftime('%d.%m.%Y')} (tg:{s['telegram_id']})"
+        if end < now:
+            overdue_lines.append(line)
+        else:
+            soon_lines.append(line)
+    text = ""
+    if overdue_lines:
+        text += "🔴 Просрочили оплату:\n" + "\n".join(overdue_lines) + "\n\n"
+    if soon_lines:
+        text += "🟡 Скоро нужно оплатить:\n" + "\n".join(soon_lines)
+    await update.message.reply_text(text.strip())
 
 
 async def clients_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -261,8 +307,8 @@ async def remind_expiring_subscriptions(app: Application):
         try:
             await app.bot.send_message(
                 sub["telegram_id"],
-                f"Ваш абонемент «{sub['title']}» истекает {fmt_date(sub['end_date'])}. "
-                "Не забудьте продлить!",
+                f"Напоминаем: по абонементу «{sub['title']}» нужно оплатить "
+                f"до {fmt_date(sub['end_date'])}.",
             )
             db.mark_notified(sub["id"])
         except Exception:
@@ -286,6 +332,7 @@ def main():
 
     app.add_handler(CommandHandler("add_client", add_client))
     app.add_handler(CommandHandler("add_sub", add_sub))
+    app.add_handler(CommandHandler("due", due))
     app.add_handler(CommandHandler("clients", clients_list))
     app.add_handler(CommandHandler("add_training", add_training_cmd))
     app.add_handler(CommandHandler("trainings_all", trainings_all))

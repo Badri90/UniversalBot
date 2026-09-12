@@ -5,6 +5,7 @@
 import sqlite3
 from datetime import datetime, timedelta
 from contextlib import contextmanager
+from dateutil.relativedelta import relativedelta
 
 DB_PATH = "gym.db"
 
@@ -99,9 +100,14 @@ def list_all_clients():
 
 # ---------- Абонементы ----------
 
-def add_subscription(client_id: int, title: str, days: int, visits: int = None):
-    start = datetime.now()
-    end = start + timedelta(days=days)
+def add_subscription(client_id: int, title: str, payment_date: datetime,
+                      months: int = 1, visits: int = None):
+    """
+    payment_date — дата, когда клиент оплатил.
+    Следующая оплата (end_date) считается как та же дата через `months` месяцев
+    (05.10 -> 05.11 при months=1), а не просто "+30 дней".
+    """
+    end = payment_date + relativedelta(months=months)
     with get_conn() as conn:
         conn.execute(
             """
@@ -109,7 +115,7 @@ def add_subscription(client_id: int, title: str, days: int, visits: int = None):
                 (client_id, title, start_date, end_date, visits_total, visits_left, status)
             VALUES (?, ?, ?, ?, ?, ?, 'active')
             """,
-            (client_id, title, start.isoformat(), end.isoformat(), visits, visits),
+            (client_id, title, payment_date.isoformat(), end.isoformat(), visits, visits),
         )
 
 
@@ -162,6 +168,25 @@ def subscriptions_expiring_soon(days_ahead: int = 3):
               AND s.notified_expiring = 0
             """,
             (now.isoformat(), soon.isoformat()),
+        ).fetchall()
+
+
+def list_payment_status(days_ahead: int = 5):
+    """
+    Возвращает все активные абонементы с client info, отсортированные по дате оплаты.
+    Используется админом, чтобы разом увидеть, кто скоро должен платить и кто уже просрочил.
+    """
+    now = datetime.now()
+    horizon = now + timedelta(days=days_ahead)
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT s.*, c.telegram_id, c.full_name FROM subscriptions s
+            JOIN clients c ON c.id = s.client_id
+            WHERE s.status = 'active' AND s.end_date <= ?
+            ORDER BY s.end_date
+            """,
+            (horizon.isoformat(),),
         ).fetchall()
 
 
