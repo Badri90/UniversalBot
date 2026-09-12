@@ -60,6 +60,12 @@ def init_db():
                 created_at TEXT NOT NULL,
                 UNIQUE(training_id, client_id)
             );
+
+            CREATE TABLE IF NOT EXISTS announcement (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                text TEXT NOT NULL DEFAULT '',
+                updated_at TEXT
+            );
             """
         )
 
@@ -84,6 +90,51 @@ def get_client_by_telegram_id(telegram_id: int):
             "SELECT * FROM clients WHERE telegram_id = ?", (telegram_id,)
         ).fetchone()
         return row
+
+
+def get_client_by_id(client_id: int):
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM clients WHERE id = ?", (client_id,)
+        ).fetchone()
+
+
+# ---------- Объявления ----------
+
+def get_announcement() -> str:
+    with get_conn() as conn:
+        row = conn.execute("SELECT text FROM announcement WHERE id = 1").fetchone()
+        return row["text"] if row else ""
+
+
+def set_announcement(text: str):
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO announcement (id, text, updated_at) VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at
+            """,
+            (text, datetime.now().isoformat()),
+        )
+
+
+def list_clients_with_subscription():
+    """Для админ-панели мини-аппа: клиенты + их текущий активный абонемент (если есть)."""
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT c.id, c.full_name, c.telegram_id,
+                   s.title AS sub_title, s.end_date AS sub_end_date,
+                   s.visits_total, s.visits_left, s.status AS sub_status
+            FROM clients c
+            LEFT JOIN subscriptions s ON s.id = (
+                SELECT id FROM subscriptions
+                WHERE client_id = c.id AND status = 'active'
+                ORDER BY end_date DESC LIMIT 1
+            )
+            ORDER BY c.full_name
+            """
+        ).fetchall()
 
 
 def find_clients_by_name(name_part: str):

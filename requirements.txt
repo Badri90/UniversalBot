@@ -2,3 +2,5 @@ python-telegram-bot==21.4
 APScheduler==3.10.4
 python-dotenv==1.0.1
 python-dateutil==2.9.0
+flask==3.0.3
+requests==2.32.3

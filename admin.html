@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Панель тренера</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #0f0f0f);
+    --text: var(--tg-theme-text-color, #ffffff);
+    --hint: var(--tg-theme-hint-color, #999999);
+    --button: var(--tg-theme-button-color, #2ea6ff);
+    --button-text: var(--tg-theme-button-text-color, #ffffff);
+    --card: var(--tg-theme-secondary-bg-color, #1c1c1e);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  h2 { font-size: 18px; margin: 20px 0 10px; }
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .tab {
+    flex: 1;
+    text-align: center;
+    padding: 10px;
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--hint);
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .tab.active { background: var(--button); color: var(--button-text); }
+  .card {
+    background: var(--card);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .client-name { font-size: 16px; font-weight: 600; }
+  .client-sub { color: var(--hint); font-size: 13px; margin-top: 4px; }
+  .status-badge {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 6px;
+  }
+  .status-active { background: #34c75933; color: #34c759; }
+  .status-overdue { background: #ff3b3033; color: #ff3b30; }
+  .status-none { background: #8e8e9333; color: #8e8e93; }
+  button.primary {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 12px;
+    background: var(--button);
+    color: var(--button-text);
+    font-size: 15px;
+    font-weight: 600;
+    margin-top: 8px;
+  }
+  input, textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid #444;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+    margin-top: 6px;
+  }
+  .label { color: var(--hint); font-size: 13px; margin-top: 12px; }
+  .modal-bg {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 10;
+  }
+  .modal {
+    background: var(--card);
+    width: 100%;
+    max-width: 480px;
+    border-radius: 20px 20px 0 0;
+    padding: 20px;
+  }
+  .empty { text-align: center; color: var(--hint); padding: 40px 20px; }
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <div class="tab active" id="tabClients" onclick="showTab('clients')">Клиенты</div>
+  <div class="tab" id="tabAnn" onclick="showTab('announcement')">Объявление</div>
+</div>
+
+<div id="clientsView"><div class="empty">Загрузка…</div></div>
+
+<div id="announcementView" style="display:none;">
+  <div class="label">Текст объявления для всех клиентов</div>
+  <textarea id="annText" rows="4" placeholder="Например: 20 сентября зал закрыт"></textarea>
+  <button class="primary" onclick="saveAnnouncement()">Сохранить</button>
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h2 id="modalClientName">Отметить оплату</h2>
+    <div class="label">Название абонемента</div>
+    <input id="mTitle" value="Абонемент">
+    <div class="label">Дата оплаты</div>
+    <input id="mDate" type="date">
+    <div class="label">Срок (месяцев)</div>
+    <input id="mMonths" type="number" value="1" min="1">
+    <div class="label">Посещений (необязательно)</div>
+    <input id="mVisits" type="number" placeholder="оставить пустым если безлимит">
+    <button class="primary" onclick="submitPayment()">Сохранить оплату</button>
+  </div>
+</div>
+
+<script>
+  const tg = window.Telegram.WebApp;
+  tg.ready();
+  tg.expand();
+  const initData = tg.initData || "";
+
+  let currentClientId = null;
+
+  function showTab(tab) {
+    document.getElementById("tabClients").classList.toggle("active", tab === "clients");
+    document.getElementById("tabAnn").classList.toggle("active", tab === "announcement");
+    document.getElementById("clientsView").style.display = tab === "clients" ? "block" : "none";
+    document.getElementById("announcementView").style.display = tab === "announcement" ? "block" : "none";
+    if (tab === "announcement") loadAnnouncement();
+  }
+
+  async function loadClients() {
+    const res = await fetch("/api/admin/clients?initData=" + encodeURIComponent(initData));
+    const data = await res.json();
+    const view = document.getElementById("clientsView");
+
+    if (data.error) {
+      view.innerHTML = '<div class="empty">Нет доступа. Эта панель только для тренера.</div>';
+      return;
+    }
+    if (!data.clients.length) {
+      view.innerHTML = '<div class="empty">Клиентов пока нет.<br>Попросите их написать боту /start.</div>';
+      return;
+    }
+
+    view.innerHTML = data.clients.map(c => {
+      let badge = '<span class="status-badge status-none">Нет абонемента</span>';
+      let subInfo = "";
+      if (c.status === "active") {
+        badge = `<span class="status-badge status-active">До ${c.sub_end_date}</span>`;
+      } else if (c.status === "overdue") {
+        badge = `<span class="status-badge status-overdue">Просрочен: ${c.sub_end_date}</span>`;
+      }
+      if (c.sub_title) {
+        subInfo = `<div class="client-sub">${c.sub_title}</div>`;
+      }
+      return `
+        <div class="card">
+          <div class="client-name">${c.full_name}</div>
+          ${subInfo}
+          <div>${badge}</div>
+          <button class="primary" onclick="openModal(${c.id}, '${c.full_name.replace(/'/g, "")}')">Отметить оплату</button>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function openModal(clientId, name) {
+    currentClientId = clientId;
+    document.getElementById("modalClientName").textContent = "Оплата: " + name;
+    document.getElementById("mDate").value = new Date().toISOString().slice(0, 10);
+    document.getElementById("modalBg").style.display = "flex";
+  }
+  document.getElementById("modalBg").addEventListener("click", (e) => {
+    if (e.target.id === "modalBg") document.getElementById("modalBg").style.display = "none";
+  });
+
+  async function submitPayment() {
+    const body = {
+      initData,
+      client_id: currentClientId,
+      title: document.getElementById("mTitle").value || "Абонемент",
+      payment_date: document.getElementById("mDate").value,
+      months: document.getElementById("mMonths").value || 1,
+      visits: document.getElementById("mVisits").value,
+    };
+    const res = await fetch("/api/admin/mark_payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById("modalBg").style.display = "none";
+      tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+      loadClients();
+    } else {
+      alert("Ошибка: " + (data.error || "неизвестная"));
+    }
+  }
+
+  async function loadAnnouncement() {
+    const res = await fetch("/api/admin/announcement?initData=" + encodeURIComponent(initData));
+    const data = await res.json();
+    document.getElementById("annText").value = data.text || "";
+  }
+
+  async function saveAnnouncement() {
+    const text = document.getElementById("annText").value;
+    const res = await fetch("/api/admin/announcement", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, text }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+      alert("Сохранено");
+    }
+  }
+
+  loadClients();
+</script>
+
+</body>
+</html>
