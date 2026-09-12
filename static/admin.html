@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Панель тренера</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #0f0f0f);
+    --text: var(--tg-theme-text-color, #ffffff);
+    --hint: var(--tg-theme-hint-color, #999999);
+    --button: var(--tg-theme-button-color, #2ea6ff);
+    --button-text: var(--tg-theme-button-text-color, #ffffff);
+    --card: var(--tg-theme-secondary-bg-color, #1c1c1e);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  h2 { font-size: 18px; margin: 20px 0 10px; }
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .tab {
+    flex: 1;
+    text-align: center;
+    padding: 10px;
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--hint);
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .tab.active { background: var(--button); color: var(--button-text); }
+  .card {
+    background: var(--card);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .client-name { font-size: 16px; font-weight: 600; }
+  .client-sub { color: var(--hint); font-size: 13px; margin-top: 4px; }
+  .status-badge {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 6px;
+  }
+  .status-active { background: #34c75933; color: #34c759; }
+  .status-overdue { background: #ff3b3033; color: #ff3b30; }
+  .status-none { background: #8e8e9333; color: #8e8e93; }
+  button.primary {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 12px;
+    background: var(--button);
+    color: var(--button-text);
+    font-size: 15px;
+    font-weight: 600;
+    margin-top: 8px;
+  }
+  input, textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid #444;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+    margin-top: 6px;
+  }
+  .label { color: var(--hint); font-size: 13px; margin-top: 12px; }
+  .modal-bg {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 10;
+  }
+  .modal {
+    background: var(--card);
+    width: 100%;
+    max-width: 480px;
+    border-radius: 20px 20px 0 0;
+    padding: 20px;
+  }
+  .empty { text-align: center; color: var(--hint); padding: 40px 20px; }
+  .subtabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .subtab {
+    flex: 1;
+    text-align: center;
+    padding: 8px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid #444;
+    color: var(--hint);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .subtab.active { background: var(--hint); color: var(--bg); border-color: var(--hint); }
+  .badge-count {
+    display: inline-block;
+    background: #ff3b30;
+    color: white;
+    border-radius: 10px;
+    padding: 1px 7px;
+    font-size: 11px;
+    margin-left: 4px;
+  }
+  .row-buttons { display: flex; gap: 8px; margin-top: 8px; }
+  .row-buttons button { flex: 1; margin-top: 0; }
+  button.small-secondary {
+    padding: 10px;
+    border: none;
+    border-radius: 10px;
+    background: #3a3a3c;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  button.small-danger {
+    padding: 10px;
+    border: none;
+    border-radius: 10px;
+    background: #ff3b3033;
+    color: #ff3b30;
+    font-size: 13px;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <div class="tab active" id="tabClients" onclick="showTab('clients')">Клиенты</div>
+  <div class="tab" id="tabFreeze" onclick="showTab('freeze')">Заморозки<span id="freezeBadge"></span></div>
+  <div class="tab" id="tabAnn" onclick="showTab('announcement')">Объявление</div>
+</div>
+
+<div id="clientsView">
+  <div class="subtabs">
+    <div class="subtab active" id="subAll" onclick="setGroup(null)">Все</div>
+    <div class="subtab" id="subAdult" onclick="setGroup('adult')">Adult</div>
+    <div class="subtab" id="subKids" onclick="setGroup('kids')">Kids</div>
+  </div>
+  <input id="searchInput" placeholder="🔍 Поиск по имени или фамилии" oninput="renderClients()" style="margin-bottom:10px;">
+  <div class="subtabs">
+    <div class="subtab active" id="sortAlpha" onclick="setSort('alpha')">А-Я</div>
+    <div class="subtab" id="sortBirth" onclick="setSort('birth')">По дате рождения</div>
+  </div>
+  <div id="clientsList"><div class="empty">Загрузка…</div></div>
+</div>
+
+<div id="freezeView" style="display:none;">
+  <div id="freezeList"><div class="empty">Загрузка…</div></div>
+</div>
+
+<div id="announcementView" style="display:none;">
+  <div class="label">Текст объявления для всех клиентов</div>
+  <textarea id="annText" rows="4" placeholder="Например: 20 сентября зал закрыт"></textarea>
+  <button class="primary" onclick="saveAnnouncement()">Сохранить</button>
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h2 id="modalClientName">Отметить оплату</h2>
+    <div class="label">Название абонемента</div>
+    <input id="mTitle" value="Абонемент">
+    <div class="label">Дата оплаты</div>
+    <input id="mDate" type="date">
+    <div class="label">Срок (месяцев)</div>
+    <input id="mMonths" type="number" value="1" min="1">
+    <div class="label">Посещений (необязательно)</div>
+    <input id="mVisits" type="number" placeholder="оставить пустым если безлимит">
+    <button class="primary" onclick="submitPayment()">Сохранить оплату</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="editModalBg">
+  <div class="modal">
+    <h2>Редактировать имя</h2>
+    <input id="eName" placeholder="Имя и фамилия">
+    <button class="primary" onclick="submitEdit()">Сохранить</button>
+  </div>
+</div>
+
+<script>
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) {
+    try { tg.ready(); tg.expand(); } catch (e) {}
+  }
+  const initData = (tg && tg.initData) || "";
+
+  let currentClientId = null;
+  let currentGroup = null;
+  let currentSort = "alpha";
+  let allClients = [];
+
+  function showTab(tab) {
+    document.getElementById("tabClients").classList.toggle("active", tab === "clients");
+    document.getElementById("tabFreeze").classList.toggle("active", tab === "freeze");
+    document.getElementById("tabAnn").classList.toggle("active", tab === "announcement");
+    document.getElementById("clientsView").style.display = tab === "clients" ? "block" : "none";
+    document.getElementById("freezeView").style.display = tab === "freeze" ? "block" : "none";
+    document.getElementById("announcementView").style.display = tab === "announcement" ? "block" : "none";
+    if (tab === "announcement") loadAnnouncement();
+    if (tab === "freeze") loadFreezeRequests();
+  }
+
+  function setGroup(group) {
+    currentGroup = group;
+    document.getElementById("subAll").classList.toggle("active", group === null);
+    document.getElementById("subAdult").classList.toggle("active", group === "adult");
+    document.getElementById("subKids").classList.toggle("active", group === "kids");
+    loadClients();
+  }
+
+  function setSort(sort) {
+    currentSort = sort;
+    document.getElementById("sortAlpha").classList.toggle("active", sort === "alpha");
+    document.getElementById("sortBirth").classList.toggle("active", sort === "birth");
+    renderClients();
+  }
+
+  async function loadClients() {
+    const q = currentGroup ? "&group=" + currentGroup : "";
+    const res = await fetch("/api/admin/clients?initData=" + encodeURIComponent(initData) + q);
+    const data = await res.json();
+
+    if (data.error) {
+      document.getElementById("clientsList").innerHTML =
+        '<div class="empty">Нет доступа. Эта панель только для тренера.</div>';
+      return;
+    }
+    allClients = data.clients;
+    renderClients();
+  }
+
+  function renderClients() {
+    const view = document.getElementById("clientsList");
+    const searchTerm = (document.getElementById("searchInput").value || "").toLowerCase().trim();
+
+    let list = allClients.filter(c => c.full_name.toLowerCase().includes(searchTerm));
+
+    if (currentSort === "birth") {
+      list = list.slice().sort((a, b) => {
+        if (!a.birth_date) return 1;
+        if (!b.birth_date) return -1;
+        return a.birth_date.localeCompare(b.birth_date);
+      });
+    } else {
+      list = list.slice().sort((a, b) => a.full_name.localeCompare(b.full_name, "ru"));
+    }
+
+    if (!allClients.length) {
+      view.innerHTML = '<div class="empty">Клиентов пока нет.<br>Попросите их написать боту /start.</div>';
+      return;
+    }
+    if (!list.length) {
+      view.innerHTML = '<div class="empty">Никого не найдено по этому запросу.</div>';
+      return;
+    }
+
+    view.innerHTML = list.map(c => {
+      let badge = '<span class="status-badge status-none">Нет абонемента</span>';
+      let subInfo = "";
+      if (c.status === "active") {
+        badge = `<span class="status-badge status-active">До ${c.sub_end_date}</span>`;
+      } else if (c.status === "overdue") {
+        badge = `<span class="status-badge status-overdue">Просрочен: ${c.sub_end_date}</span>`;
+      }
+      const groupLabel = c.group_type === 'kids' ? 'Kids' : 'Adult';
+      const birthLabel = c.birth_date ? ` · д.р. ${c.birth_date.split('-').reverse().join('.')}` : '';
+      if (c.sub_title) {
+        subInfo = `<div class="client-sub">${c.sub_title} · ${groupLabel}${birthLabel}</div>`;
+      } else {
+        subInfo = `<div class="client-sub">${groupLabel}${birthLabel}</div>`;
+      }
+      const safeName = c.full_name.replace(/'/g, "\\'");
+      return `
+        <div class="card">
+          <div class="client-name">${c.full_name}</div>
+          ${subInfo}
+          <div>${badge}</div>
+          <button class="primary" onclick="openModal(${c.id}, '${safeName}')">Отметить оплату</button>
+          <div class="row-buttons">
+            <button class="small-secondary" onclick="openEditModal(${c.id}, '${safeName}')">✏️ Изменить имя</button>
+            <button class="small-danger" onclick="deleteClient(${c.id}, '${safeName}')">🗑 Удалить</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function openModal(clientId, name) {
+    currentClientId = clientId;
+    document.getElementById("modalClientName").textContent = "Оплата: " + name;
+    document.getElementById("mDate").value = new Date().toISOString().slice(0, 10);
+    document.getElementById("modalBg").style.display = "flex";
+  }
+  document.getElementById("modalBg").addEventListener("click", (e) => {
+    if (e.target.id === "modalBg") document.getElementById("modalBg").style.display = "none";
+  });
+
+  function openEditModal(clientId, name) {
+    currentClientId = clientId;
+    document.getElementById("eName").value = name;
+    document.getElementById("editModalBg").style.display = "flex";
+  }
+  document.getElementById("editModalBg").addEventListener("click", (e) => {
+    if (e.target.id === "editModalBg") document.getElementById("editModalBg").style.display = "none";
+  });
+
+  async function submitEdit() {
+    const full_name = document.getElementById("eName").value;
+    const res = await fetch("/api/admin/edit_client", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, client_id: currentClientId, full_name }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById("editModalBg").style.display = "none";
+      loadClients();
+    } else {
+      alert("Ошибка: " + (data.error || "неизвестная"));
+    }
+  }
+
+  async function deleteClient(clientId, name) {
+    if (!confirm(`Удалить ${name} из базы? Это действие необратимо.`)) return;
+    const res = await fetch("/api/admin/delete_client", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, client_id: clientId }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      loadClients();
+    } else {
+      alert("Ошибка: " + (data.error || "неизвестная"));
+    }
+  }
+
+  async function submitPayment() {
+    const body = {
+      initData,
+      client_id: currentClientId,
+      title: document.getElementById("mTitle").value || "Абонемент",
+      payment_date: document.getElementById("mDate").value,
+      months: document.getElementById("mMonths").value || 1,
+      visits: document.getElementById("mVisits").value,
+    };
+    const res = await fetch("/api/admin/mark_payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById("modalBg").style.display = "none";
+      tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+      loadClients();
+    } else {
+      alert("Ошибка: " + (data.error || "неизвестная"));
+    }
+  }
+
+  async function loadFreezeRequests() {
+    const res = await fetch("/api/admin/freeze_requests?initData=" + encodeURIComponent(initData));
+    const data = await res.json();
+    const view = document.getElementById("freezeList");
+    const badge = document.getElementById("freezeBadge");
+
+    if (data.error) {
+      view.innerHTML = '<div class="empty">Нет доступа.</div>';
+      return;
+    }
+    if (!data.requests.length) {
+      view.innerHTML = '<div class="empty">Нет активных заявок на заморозку.</div>';
+      badge.innerHTML = "";
+      return;
+    }
+    badge.innerHTML = `<span class="badge-count">${data.requests.length}</span>`;
+    view.innerHTML = data.requests.map(r => `
+      <div class="card">
+        <div class="client-name">${r.full_name}</div>
+        <div class="client-sub">Просит заморозку на ${r.days_requested} дн. · заявка от ${r.created_at}</div>
+        <div class="row-buttons">
+          <button class="primary" style="background:#34c759;" onclick="decideFreeze(${r.id}, true)">✅ Одобрить</button>
+          <button class="small-danger" onclick="decideFreeze(${r.id}, false)">❌ Отклонить</button>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  async function decideFreeze(requestId, approve) {
+    const res = await fetch("/api/admin/freeze_decision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, request_id: requestId, approve }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+      loadFreezeRequests();
+    } else {
+      alert("Ошибка: " + (data.error || "неизвестная"));
+    }
+  }
+
+  async function loadAnnouncement() {
+    const res = await fetch("/api/admin/announcement?initData=" + encodeURIComponent(initData));
+    const data = await res.json();
+    document.getElementById("annText").value = data.text || "";
+  }
+
+  async function saveAnnouncement() {
+    const text = document.getElementById("annText").value;
+    const res = await fetch("/api/admin/announcement", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, text }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+      alert("Сохранено");
+    }
+  }
+
+  loadClients();
+  loadFreezeRequests();
+</script>
+
+</body>
+</html>
