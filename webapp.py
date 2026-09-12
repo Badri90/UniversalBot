@@ -67,6 +67,17 @@ def fmt_date(iso_str: str) -> str:
     return datetime.fromisoformat(iso_str).strftime("%d.%m.%Y")
 
 
+def notify_telegram(chat_id: int, text: str):
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={"chat_id": chat_id, "text": text},
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
 # ---------------- Статические страницы ----------------
 
 @flask_app.route("/")
@@ -104,10 +115,38 @@ def api_me():
 
     return jsonify({
         "registered": True,
+        "client_id": client["id"],
         "full_name": client["full_name"],
+        "group_type": client["group_type"],
         "subscription": subscription,
         "announcement": db.get_announcement(),
     })
+
+
+@flask_app.route("/api/register", methods=["POST"])
+def api_register():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not user:
+        return jsonify({"error": "auth_failed"}), 401
+
+    full_name = (body.get("full_name") or "").strip()
+    group_type = body.get("group_type") if body.get("group_type") in ("adult", "kids") else "adult"
+    birth_date = (body.get("birth_date") or "").strip() or None
+
+    if len(full_name) < 2:
+        return jsonify({"error": "bad_name"}), 400
+
+    db.upsert_client(user["id"], full_name, group_type, birth_date)
+
+    for admin_id in ADMIN_IDS:
+        notify_telegram(
+            admin_id,
+            f"🆕 Новая регистрация: {full_name} "
+            f"({'Kids' if group_type == 'kids' else 'Adult'})",
+        )
+
+    return jsonify({"ok": True})
 
 
 # ---------------- API: админ ----------------
@@ -123,7 +162,8 @@ def api_admin_clients():
     if not require_admin(user):
         return jsonify({"error": "forbidden"}), 403
 
-    rows = db.list_clients_with_subscription()
+    group_type = request.args.get("group")  # 'adult' | 'kids' | None (все)
+    rows = db.list_clients_with_subscription(group_type)
     now = datetime.now()
     result = []
     for c in rows:
@@ -137,6 +177,8 @@ def api_admin_clients():
             "id": c["id"],
             "full_name": c["full_name"],
             "telegram_id": c["telegram_id"],
+            "group_type": c["group_type"],
+            "birth_date": c["birth_date"],
             "sub_title": c["sub_title"],
             "sub_end_date": end_date,
             "visits_left": c["visits_left"],
@@ -144,6 +186,37 @@ def api_admin_clients():
             "status": status,
         })
     return jsonify({"clients": result})
+
+
+@flask_app.route("/api/admin/edit_client", methods=["POST"])
+def api_admin_edit_client():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    client_id = body.get("client_id")
+    full_name = (body.get("full_name") or "").strip()
+    if not client_id or len(full_name) < 2:
+        return jsonify({"error": "bad_request"}), 400
+
+    db.update_client_name(client_id, full_name)
+    return jsonify({"ok": True})
+
+
+@flask_app.route("/api/admin/delete_client", methods=["POST"])
+def api_admin_delete_client():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    client_id = body.get("client_id")
+    if not client_id:
+        return jsonify({"error": "bad_request"}), 400
+
+    db.delete_client(client_id)
+    return jsonify({"ok": True})
 
 
 @flask_app.route("/api/admin/mark_payment", methods=["POST"])
@@ -171,21 +244,13 @@ def api_admin_mark_payment():
 
     db.add_subscription(client["id"], title, payment_date, months, visits)
 
-    # уведомляем клиента напрямую через Bot API (без общего event loop с ботом)
-    try:
-        from dateutil.relativedelta import relativedelta
-        next_due = payment_date + relativedelta(months=months)
-        requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": client["telegram_id"],
-                "text": f"Оплата абонемента «{title}» зафиксирована. "
-                        f"Следующая оплата: {next_due.strftime('%d.%m.%Y')}.",
-            },
-            timeout=5,
-        )
-    except Exception:
-        pass
+    from dateutil.relativedelta import relativedelta
+    next_due = payment_date + relativedelta(months=months)
+    notify_telegram(
+        client["telegram_id"],
+        f"Оплата абонемента «{title}» зафиксирована. "
+        f"Следующая оплата: {next_due.strftime('%d.%m.%Y')}.",
+    )
 
     return jsonify({"ok": True})
 
@@ -204,6 +269,87 @@ def api_admin_announcement():
     if not require_admin(user):
         return jsonify({"error": "forbidden"}), 403
     db.set_announcement(body.get("text", ""))
+    return jsonify({"ok": True})
+
+
+# ---------------- API: заморозка абонемента ----------------
+
+@flask_app.route("/api/freeze_request", methods=["POST"])
+def api_freeze_request():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not user:
+        return jsonify({"error": "auth_failed"}), 401
+
+    client = db.get_client_by_telegram_id(user["id"])
+    if not client:
+        return jsonify({"error": "not_registered"}), 404
+
+    try:
+        days = int(body.get("days"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "bad_days"}), 400
+    if days < 1 or days > 90:
+        return jsonify({"error": "bad_days"}), 400
+
+    db.create_freeze_request(client["id"], days)
+
+    for admin_id in ADMIN_IDS:
+        notify_telegram(
+            admin_id,
+            f"❄️ Заявка на заморозку от {client['full_name']} на {days} дн.\n"
+            f"Откройте /admin_app, чтобы одобрить или отклонить.",
+        )
+
+    return jsonify({"ok": True})
+
+
+@flask_app.route("/api/admin/freeze_requests")
+def api_admin_freeze_requests():
+    init_data = request.args.get("initData", "")
+    user = validate_init_data(init_data)
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    rows = db.list_pending_freeze_requests()
+    result = [{
+        "id": r["id"],
+        "full_name": r["full_name"],
+        "days_requested": r["days_requested"],
+        "created_at": fmt_date(r["created_at"]),
+    } for r in rows]
+    return jsonify({"requests": result})
+
+
+@flask_app.route("/api/admin/freeze_decision", methods=["POST"])
+def api_admin_freeze_decision():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    request_id = body.get("request_id")
+    approve = bool(body.get("approve"))
+
+    req = db.decide_freeze_request(request_id, approve)
+    if not req:
+        return jsonify({"error": "not_found_or_decided"}), 404
+
+    client = db.get_client_by_id(req["client_id"])
+    if client:
+        if approve:
+            notify_telegram(
+                client["telegram_id"],
+                f"✅ Ваша заявка на заморозку ({req['days_requested']} дн.) одобрена. "
+                "Дата следующей оплаты сдвинута.",
+            )
+        else:
+            notify_telegram(
+                client["telegram_id"],
+                f"❌ Ваша заявка на заморозку ({req['days_requested']} дн.) отклонена. "
+                "Свяжитесь с тренером для уточнения.",
+            )
+
     return jsonify({"ok": True})
 
 

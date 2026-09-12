@@ -31,7 +31,18 @@ def init_db():
                 telegram_id INTEGER UNIQUE NOT NULL,
                 full_name TEXT NOT NULL,
                 phone TEXT,
+                group_type TEXT NOT NULL DEFAULT 'adult',
+                birth_date TEXT,
                 created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS freeze_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+                days_requested INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                decided_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS subscriptions (
@@ -68,19 +79,28 @@ def init_db():
             );
             """
         )
+        # Миграция: если база уже существовала без новых колонок — добавляем их
+        cols = [row["name"] for row in conn.execute("PRAGMA table_info(clients)")]
+        if "group_type" not in cols:
+            conn.execute("ALTER TABLE clients ADD COLUMN group_type TEXT NOT NULL DEFAULT 'adult'")
+        if "birth_date" not in cols:
+            conn.execute("ALTER TABLE clients ADD COLUMN birth_date TEXT")
 
 
 # ---------- Клиенты ----------
 
-def upsert_client(telegram_id: int, full_name: str, phone: str = None):
+def upsert_client(telegram_id: int, full_name: str, group_type: str = "adult",
+                   birth_date: str = None, phone: str = None):
     with get_conn() as conn:
         conn.execute(
             """
-            INSERT INTO clients (telegram_id, full_name, phone, created_at)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(telegram_id) DO UPDATE SET full_name=excluded.full_name
+            INSERT INTO clients (telegram_id, full_name, phone, group_type, birth_date, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(telegram_id) DO UPDATE SET
+                full_name=excluded.full_name, group_type=excluded.group_type,
+                birth_date=excluded.birth_date
             """,
-            (telegram_id, full_name, phone, datetime.now().isoformat()),
+            (telegram_id, full_name, phone, group_type, birth_date, datetime.now().isoformat()),
         )
 
 
@@ -118,23 +138,100 @@ def set_announcement(text: str):
         )
 
 
-def list_clients_with_subscription():
+def update_client_name(client_id: int, full_name: str):
+    with get_conn() as conn:
+        conn.execute("UPDATE clients SET full_name = ? WHERE id = ?", (full_name, client_id))
+
+
+def delete_client(client_id: int):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM clients WHERE id = ?", (client_id,))
+
+
+def list_clients_with_subscription(group_type: str = None):
     """Для админ-панели мини-аппа: клиенты + их текущий активный абонемент (если есть)."""
+    query = """
+        SELECT c.id, c.full_name, c.telegram_id, c.group_type, c.birth_date,
+               s.title AS sub_title, s.end_date AS sub_end_date,
+               s.visits_total, s.visits_left, s.status AS sub_status
+        FROM clients c
+        LEFT JOIN subscriptions s ON s.id = (
+            SELECT id FROM subscriptions
+            WHERE client_id = c.id AND status = 'active'
+            ORDER BY end_date DESC LIMIT 1
+        )
+    """
+    params = ()
+    if group_type:
+        query += " WHERE c.group_type = ?"
+        params = (group_type,)
+    query += " ORDER BY c.full_name"
+    with get_conn() as conn:
+        return conn.execute(query, params).fetchall()
+
+
+# ---------- Заморозка абонемента ----------
+
+def create_freeze_request(client_id: int, days_requested: int):
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO freeze_requests (client_id, days_requested, status, created_at)
+            VALUES (?, ?, 'pending', ?)
+            """,
+            (client_id, days_requested, datetime.now().isoformat()),
+        )
+
+
+def list_pending_freeze_requests():
     with get_conn() as conn:
         return conn.execute(
             """
-            SELECT c.id, c.full_name, c.telegram_id,
-                   s.title AS sub_title, s.end_date AS sub_end_date,
-                   s.visits_total, s.visits_left, s.status AS sub_status
-            FROM clients c
-            LEFT JOIN subscriptions s ON s.id = (
-                SELECT id FROM subscriptions
-                WHERE client_id = c.id AND status = 'active'
-                ORDER BY end_date DESC LIMIT 1
-            )
-            ORDER BY c.full_name
+            SELECT f.*, c.full_name, c.telegram_id FROM freeze_requests f
+            JOIN clients c ON c.id = f.client_id
+            WHERE f.status = 'pending'
+            ORDER BY f.created_at
             """
         ).fetchall()
+
+
+def get_freeze_request(request_id: int):
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM freeze_requests WHERE id = ?", (request_id,)
+        ).fetchone()
+
+
+def decide_freeze_request(request_id: int, approve: bool):
+    """
+    Если одобрено — сдвигает дату окончания активного абонемента клиента
+    на days_requested дней вперёд (клиент "донашивает" пропущенные дни).
+    """
+    req = get_freeze_request(request_id)
+    if not req or req["status"] != "pending":
+        return None
+
+    with get_conn() as conn:
+        new_status = "approved" if approve else "rejected"
+        conn.execute(
+            "UPDATE freeze_requests SET status = ?, decided_at = ? WHERE id = ?",
+            (new_status, datetime.now().isoformat(), request_id),
+        )
+        if approve:
+            sub = conn.execute(
+                """
+                SELECT * FROM subscriptions WHERE client_id = ? AND status = 'active'
+                ORDER BY end_date DESC LIMIT 1
+                """,
+                (req["client_id"],),
+            ).fetchone()
+            if sub:
+                new_end = datetime.fromisoformat(sub["end_date"]) + timedelta(days=req["days_requested"])
+                conn.execute(
+                    "UPDATE subscriptions SET end_date = ? WHERE id = ?",
+                    (new_end.isoformat(), sub["id"]),
+                )
+    return req
 
 
 def find_clients_by_name(name_part: str):

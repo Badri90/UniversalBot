@@ -3,15 +3,18 @@ Telegram-бот для учёта абонементов борцовского 
 
 Возможности:
   Для клиентов:
-    /start           — регистрация (бот спросит имя и фамилию)
-    /my              — мой абонемент (сроки / остаток посещений)
+    Кнопка «Открыть кабинет» рядом с полем ввода (или /app) — регистрация
+    (группа Adult/Kids, имя, дата рождения), статус абонемента, заявка на
+    заморозку — всё внутри мини-аппа, не через текстовые команды.
+    /my              — мой абонемент (дублирует кабинет, текстом)
     /trainings       — ближайшие тренировки
     /book <id>       — записаться на тренировку
     /cancel <id>     — отменить запись
     /mybookings      — мои записи
 
   Для админа (ID из ADMIN_IDS в .env):
-    /clients                     — список клиентов с номерами
+    /admin_app                   — панель тренера (клиенты, заморозки, объявление)
+    /clients                     — список клиентов с номерами (текстом)
     /add_sub <номер> <название> <ДД.ММ.ГГГГ> [месяцев] [посещений]
         пример: /add_sub 1 "Месячный" 05.10.2026
     /due                         — кто должен оплатить или просрочил
@@ -27,14 +30,11 @@ import os
 from datetime import datetime
 
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, MenuButtonWebApp, MenuButtonDefault
 from telegram.ext import (
     Application,
     CommandHandler,
     ContextTypes,
-    ConversationHandler,
-    MessageHandler,
-    filters,
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dateutil.relativedelta import relativedelta
@@ -64,9 +64,6 @@ def fmt_date(iso_str: str) -> str:
 
 # ---------------- Клиентские команды ----------------
 
-ASKING_NAME = 1
-
-
 def cabinet_keyboard():
     if not WEBAPP_URL:
         return None
@@ -77,40 +74,19 @@ def cabinet_keyboard():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     existing = db.get_client_by_telegram_id(update.effective_user.id)
+    kb = cabinet_keyboard()
     if existing:
         await update.message.reply_text(
-            f"С возвращением, {existing['full_name']}!\n\n"
-            "/my — мой абонемент\n"
-            "/trainings — ближайшие тренировки\n"
-            "/mybookings — мои записи",
-            reply_markup=cabinet_keyboard(),
+            f"С возвращением, {existing['full_name']}!\n"
+            "Откройте личный кабинет кнопкой ниже.",
+            reply_markup=kb,
         )
-        return ConversationHandler.END
-
-    await update.message.reply_text(
-        "Добро пожаловать в бот учёта абонементов зала!\n\n"
-        "Напишите, пожалуйста, ваше имя и фамилию для регистрации:"
-    )
-    return ASKING_NAME
-
-
-async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    full_name = update.message.text.strip()
-    if len(full_name) < 2:
-        await update.message.reply_text("Пожалуйста, введите настоящее имя и фамилию.")
-        return ASKING_NAME
-
-    user = update.effective_user
-    db.upsert_client(user.id, full_name)
-    await update.message.reply_text(
-        f"Спасибо, {full_name}! Вы зарегистрированы.\n\n"
-        "/my — мой абонемент\n"
-        "/trainings — ближайшие тренировки\n"
-        "/mybookings — мои записи\n\n"
-        "Тренер выдаст вам абонемент и отметит оплату — вам ничего дополнительно делать не нужно.",
-        reply_markup=cabinet_keyboard(),
-    )
-    return ConversationHandler.END
+    else:
+        await update.message.reply_text(
+            "Добро пожаловать в бот учёта абонементов зала!\n\n"
+            "Нажмите кнопку ниже, чтобы зарегистрироваться и открыть личный кабинет.",
+            reply_markup=kb,
+        )
 
 
 async def open_app(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -131,11 +107,6 @@ async def open_admin_app(update: Update, context: ContextTypes.DEFAULT_TYPE):
         InlineKeyboardButton("🛠 Открыть панель тренера", web_app=WebAppInfo(url=f"{WEBAPP_URL}/admin"))
     ]])
     await update.message.reply_text("Панель тренера:", reply_markup=kb)
-
-
-async def cancel_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Регистрация отменена. Напишите /start, чтобы начать заново.")
-    return ConversationHandler.END
 
 
 async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -389,6 +360,16 @@ async def remind_expiring_subscriptions(app: Application):
             logger.warning("Не удалось отправить напоминание клиенту %s", sub["telegram_id"])
 
 
+async def setup_menu_button(app: Application):
+    """Ставит постоянную кнопку рядом с полем ввода, которая сразу открывает мини-апп."""
+    if WEBAPP_URL:
+        await app.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(text="Открыть кабинет", web_app=WebAppInfo(url=WEBAPP_URL))
+        )
+    else:
+        await app.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
+
+
 def main():
     if not BOT_TOKEN:
         raise RuntimeError("Заполните BOT_TOKEN в файле .env")
@@ -396,16 +377,9 @@ def main():
     db.init_db()
     webapp.run_in_background()
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).post_init(setup_menu_button).build()
 
-    registration_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            ASKING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_name)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel_registration)],
-    )
-    app.add_handler(registration_handler)
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("my", my_subscription))
     app.add_handler(CommandHandler("trainings", trainings))
     app.add_handler(CommandHandler("book", book))
