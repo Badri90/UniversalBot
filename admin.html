@@ -129,10 +129,11 @@
 </div>
 
 <script>
-  const tg = window.Telegram.WebApp;
-  tg.ready();
-  tg.expand();
-  const initData = tg.initData || "";
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) {
+    try { tg.ready(); tg.expand(); } catch (e) {}
+  }
+  const initData = (tg && tg.initData) || "";
 
   let currentClientId = null;
 
@@ -207,7 +208,7 @@
     const data = await res.json();
     if (data.ok) {
       document.getElementById("modalBg").style.display = "none";
-      tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+      tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
       loadClients();
     } else {
       alert("Ошибка: " + (data.error || "неизвестная"));
@@ -229,7 +230,7 @@
     });
     const data = await res.json();
     if (data.ok) {
-      tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+      tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
       alert("Сохранено");
     }
   }

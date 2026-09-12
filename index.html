@@ -82,12 +82,13 @@
 <div id="content" class="loading">Загрузка…</div>
 
 <script>
-  const tg = window.Telegram.WebApp;
-  tg.ready();
-  tg.expand();
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) {
+    try { tg.ready(); tg.expand(); } catch (e) {}
+  }
 
   async function load() {
-    const initData = tg.initData || "";
+    const initData = (tg && tg.initData) || "";
     try {
       const res = await fetch("/api/me?initData=" + encodeURIComponent(initData));
       const data = await res.json();
@@ -101,6 +102,11 @@
   function render(data) {
     const content = document.getElementById("content");
     const ann = document.getElementById("announcement");
+
+    if (data.error === "auth_failed") {
+      content.innerHTML = '<div class="empty">Откройте эту страницу через кнопку «Открыть личный кабинет» в боте, а не напрямую по ссылке.</div>';
+      return;
+    }
 
     if (data.announcement) {
       ann.textContent = data.announcement;
