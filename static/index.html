@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Личный кабинет</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #0f0f0f);
+    --text: var(--tg-theme-text-color, #ffffff);
+    --hint: var(--tg-theme-hint-color, #999999);
+    --button: var(--tg-theme-button-color, #2ea6ff);
+    --button-text: var(--tg-theme-button-text-color, #ffffff);
+    --card: var(--tg-theme-secondary-bg-color, #1c1c1e);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .announcement {
+    background: linear-gradient(135deg, #ff9500, #ff5e3a);
+    color: white;
+    padding: 14px 16px;
+    border-radius: 14px;
+    margin-bottom: 16px;
+    font-size: 15px;
+    line-height: 1.4;
+    display: none;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .name {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .label {
+    color: var(--hint);
+    font-size: 13px;
+    margin-top: 14px;
+  }
+  .value {
+    font-size: 17px;
+    font-weight: 500;
+    margin-top: 2px;
+  }
+  .status-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 6px;
+  }
+  .status-active { background: #34c75933; color: #34c759; }
+  .status-overdue { background: #ff3b3033; color: #ff3b30; }
+  .status-none { background: #8e8e9333; color: #8e8e93; }
+  .empty {
+    text-align: center;
+    color: var(--hint);
+    padding: 40px 20px;
+  }
+  .loading {
+    text-align: center;
+    color: var(--hint);
+    padding: 40px 20px;
+  }
+  button.secondary {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 12px;
+    background: #3a3a3c;
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 600;
+    margin-top: 16px;
+  }
+  .modal-bg {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 10;
+  }
+  .modal {
+    background: var(--card);
+    width: 100%;
+    max-width: 480px;
+    border-radius: 20px 20px 0 0;
+    padding: 20px;
+  }
+  input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid #444;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+    margin-top: 6px;
+  }
+  .group-choice {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .group-btn {
+    flex: 1;
+    text-align: center;
+    padding: 16px 8px;
+    border-radius: 14px;
+    background: var(--card);
+    border: 2px solid transparent;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .group-btn.selected { border-color: var(--button); }
+  .group-btn .emoji { font-size: 28px; display: block; margin-bottom: 6px; }
+  button.primary-full {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 12px;
+    background: var(--button);
+    color: var(--button-text);
+    font-size: 16px;
+    font-weight: 600;
+    margin-top: 18px;
+  }
+  .lang-switch {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 10px;
+  }
+  .lang-btn {
+    padding: 6px 12px;
+    border-radius: 20px;
+    background: var(--card);
+    color: var(--hint);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .lang-btn.active { background: var(--button); color: var(--button-text); }
+</style>
+</head>
+<body>
+
+<div class="lang-switch">
+  <div class="lang-btn" id="langRu" onclick="setLang('ru')">RU</div>
+  <div class="lang-btn" id="langEn" onclick="setLang('en')" style="margin-left:6px;">EN</div>
+</div>
+
+<div id="announcement" class="announcement"></div>
+<div id="content" class="loading">…</div>
+
+<div class="modal-bg" id="freezeModalBg">
+  <div class="modal">
+    <div class="name" id="freezeModalTitle">Заморозить абонемент</div>
+    <div class="label" id="freezeDaysLabelEl">На сколько дней?</div>
+    <input id="freezeDays" type="number" min="1" max="90" value="7">
+    <button id="freezeSubmitBtn" class="primary" style="background:var(--button);color:var(--button-text);border:none;border-radius:12px;padding:12px;width:100%;margin-top:14px;font-weight:600;" onclick="submitFreeze()">Отправить заявку</button>
+  </div>
+</div>
+
+<script>
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) {
+    try { tg.ready(); tg.expand(); } catch (e) {}
+  }
+
+  const T = {
+    ru: {
+      loading: "Загрузка…",
+      openFromBot: "Откройте эту страницу через кнопку «Открыть личный кабинет» в боте, а не напрямую по ссылке.",
+      loadError: "Не удалось загрузить данные. Попробуйте позже.",
+      subscription: "Абонемент",
+      validUntil: "Действует до",
+      visitsLeft: "Осталось посещений",
+      noSubscription: "Нет активного абонемента",
+      freezeBtn: "❄️ Заморозить абонемент",
+      registration: "Регистрация",
+      chooseGroup: "Выберите группу",
+      nameLabel: "Имя и фамилия",
+      nameLabelKids: "Имя и фамилия ребёнка",
+      namePlaceholder: "Например: Иванов Иван",
+      birthDate: "Дата рождения",
+      registerBtn: "Зарегистрироваться",
+      chooseGroupAlert: "Выберите группу: Adult или Kids",
+      enterNameAlert: "Введите имя и фамилию",
+      registerFail: "Не удалось зарегистрироваться. Попробуйте ещё раз.",
+      networkError: "Ошибка сети. Попробуйте позже.",
+      freezeTitle: "Заморозить абонемент",
+      freezeDaysLabel: "На сколько дней?",
+      freezeSubmit: "Отправить заявку",
+      freezeSent: "Заявка отправлена тренеру. Ждите подтверждения.",
+      freezeFail: "Не удалось отправить заявку. Попробуйте позже.",
+      of: "из",
+    },
+    en: {
+      loading: "Loading…",
+      openFromBot: "Please open this page using the “Open cabinet” button in the bot, not directly by link.",
+      loadError: "Couldn't load data. Please try again later.",
+      subscription: "Subscription",
+      validUntil: "Valid until",
+      visitsLeft: "Visits left",
+      noSubscription: "No active subscription",
+      freezeBtn: "❄️ Freeze subscription",
+      registration: "Registration",
+      chooseGroup: "Choose a group",
+      nameLabel: "First and last name",
+      nameLabelKids: "Child's first and last name",
+      namePlaceholder: "e.g. John Smith",
+      birthDate: "Date of birth",
+      registerBtn: "Register",
+      chooseGroupAlert: "Please choose a group: Adult or Kids",
+      enterNameAlert: "Please enter first and last name",
+      registerFail: "Registration failed. Please try again.",
+      networkError: "Network error. Please try again later.",
+      freezeTitle: "Freeze subscription",
+      freezeDaysLabel: "How many days?",
+      freezeSubmit: "Send request",
+      freezeSent: "Request sent to your trainer. Awaiting approval.",
+      freezeFail: "Couldn't send the request. Please try again later.",
+      of: "of",
+    },
+  };
+
+  let lang = localStorage.getItem("gym_lang") || "ru";
+  let lastData = null;
+
+  function t(key) {
+    return T[lang][key];
+  }
+
+  function setLang(newLang) {
+    lang = newLang;
+    localStorage.setItem("gym_lang", lang);
+    document.getElementById("langRu").classList.toggle("active", lang === "ru");
+    document.getElementById("langEn").classList.toggle("active", lang === "en");
+    document.getElementById("freezeModalTitle").textContent = t("freezeTitle");
+    document.getElementById("freezeDaysLabelEl").textContent = t("freezeDaysLabel");
+    document.getElementById("freezeSubmitBtn").textContent = t("freezeSubmit");
+    if (lastData) {
+      render(lastData);
+    } else {
+      document.getElementById("content").textContent = t("loading");
+    }
+  }
+
+  async function load() {
+    const initData = (tg && tg.initData) || "";
+    try {
+      const res = await fetch("/api/me?initData=" + encodeURIComponent(initData));
+      const data = await res.json();
+      lastData = data;
+      render(data);
+    } catch (e) {
+      document.getElementById("content").innerHTML =
+        `<div class="empty">${t("loadError")}</div>`;
+    }
+  }
+
+  function render(data) {
+    const content = document.getElementById("content");
+    const ann = document.getElementById("announcement");
+
+    if (data.error === "auth_failed") {
+      content.innerHTML = `<div class="empty">${t("openFromBot")}</div>`;
+      return;
+    }
+
+    if (data.announcement) {
+      ann.textContent = data.announcement;
+      ann.style.display = "block";
+    }
+
+    if (!data.registered) {
+      renderRegistrationForm();
+      return;
+    }
+
+    let subHtml;
+    if (data.subscription) {
+      const s = data.subscription;
+      let visitsHtml = "";
+      if (s.visits_total !== null && s.visits_total !== undefined) {
+        visitsHtml = `
+          <div class="label">${t("visitsLeft")}</div>
+          <div class="value">${s.visits_left} ${t("of")} ${s.visits_total}</div>
+        `;
+      }
+      subHtml = `
+        <div class="label">${t("subscription")}</div>
+        <div class="value">${s.title}</div>
+        <div class="label">${t("validUntil")}</div>
+        <div class="value">${s.end_date}</div>
+        ${visitsHtml}
+      `;
+    } else {
+      subHtml = `<div class="label">${t("subscription")}</div>
+        <div class="status-badge status-none">${t("noSubscription")}</div>`;
+    }
+
+    content.innerHTML = `
+      <div class="card">
+        <div class="name">${data.full_name}</div>
+        ${subHtml}
+        ${data.subscription ? `<button class="secondary" onclick="openFreezeModal()">${t("freezeBtn")}</button>` : ''}
+      </div>
+    `;
+  }
+
+  let selectedGroup = null;
+
+  function renderRegistrationForm() {
+    const content = document.getElementById("content");
+    content.innerHTML = `
+      <div class="card">
+        <div class="name" style="margin-bottom:14px;">${t("registration")}</div>
+        <div class="label">${t("chooseGroup")}</div>
+        <div class="group-choice">
+          <div class="group-btn" id="grpAdult" onclick="pickGroup('adult')">
+            <span class="emoji">👤</span>Adult
+          </div>
+          <div class="group-btn" id="grpKids" onclick="pickGroup('kids')">
+            <span class="emoji">🧒</span>Kids
+          </div>
+        </div>
+        <div class="label" id="nameLabel">${t("nameLabel")}</div>
+        <input id="regName" placeholder="${t("namePlaceholder")}">
+        <div class="label">${t("birthDate")}</div>
+        <input id="regBirth" type="date">
+        <button class="primary-full" onclick="submitRegistration()">${t("registerBtn")}</button>
+      </div>
+    `;
+  }
+
+  function pickGroup(group) {
+    selectedGroup = group;
+    document.getElementById("grpAdult").classList.toggle("selected", group === "adult");
+    document.getElementById("grpKids").classList.toggle("selected", group === "kids");
+    document.getElementById("nameLabel").textContent =
+      group === "kids" ? t("nameLabelKids") : t("nameLabel");
+  }
+
+  async function submitRegistration() {
+    if (!selectedGroup) {
+      alert(t("chooseGroupAlert"));
+      return;
+    }
+    const full_name = document.getElementById("regName").value.trim();
+    const birth_date = document.getElementById("regBirth").value;
+    if (full_name.length < 2) {
+      alert(t("enterNameAlert"));
+      return;
+    }
+    const initData = (tg && tg.initData) || "";
+    try {
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData, full_name, group_type: selectedGroup, birth_date }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+        load();
+      } else {
+        alert(t("registerFail"));
+      }
+    } catch (e) {
+      alert(t("networkError"));
+    }
+  }
+
+  function openFreezeModal() {
+    document.getElementById("freezeModalBg").style.display = "flex";
+  }
+  document.getElementById("freezeModalBg").addEventListener("click", (e) => {
+    if (e.target.id === "freezeModalBg") document.getElementById("freezeModalBg").style.display = "none";
+  });
+
+  async function submitFreeze() {
+    const days = document.getElementById("freezeDays").value;
+    const initData = (tg && tg.initData) || "";
+    try {
+      const res = await fetch("/api/freeze_request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData, days }),
+      });
+      const data = await res.json();
+      document.getElementById("freezeModalBg").style.display = "none";
+      if (data.ok) {
+        tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+        alert(t("freezeSent"));
+      } else {
+        alert(t("freezeFail"));
+      }
+    } catch (e) {
+      alert(t("networkError"));
+    }
+  }
+
+  setLang(lang);
+  load();
+</script>
+
+</body>
+</html>
