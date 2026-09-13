@@ -3,113 +3,187 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Личный кабинет</title>
+<title>Universal Jiu-Jitsu Batumi</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: var(--tg-theme-bg-color, #0f0f0f);
-    --text: var(--tg-theme-text-color, #ffffff);
-    --hint: var(--tg-theme-hint-color, #999999);
-    --button: var(--tg-theme-button-color, #2ea6ff);
-    --button-text: var(--tg-theme-button-text-color, #ffffff);
-    --card: var(--tg-theme-secondary-bg-color, #1c1c1e);
+    --ink: #0A0A0A;
+    --paper: #161616;
+    --paper-line: #2B2B2B;
+    --red: #A31515;
+    --red-bright: #D01F1F;
+    --bone: #F5F3EE;
+    --ash: #8C8C86;
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
     margin: 0;
-    padding: 16px;
-    background: var(--bg);
-    color: var(--text);
+    padding: 18px 16px 32px;
+    background: var(--ink);
+    color: var(--bone);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
+  .display {
+    font-family: 'Bebas Neue', sans-serif;
+    letter-spacing: 0.03em;
+  }
+  .team-banner {
+    text-align: center;
+    padding-bottom: 16px;
+    margin-bottom: 6px;
+  }
+  .team-banner .club {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 0.06em;
+    line-height: 1.1;
+  }
+  .team-banner .city {
+    color: var(--red-bright);
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 0.06em;
+  }
+  .team-banner .bar {
+    width: 46px;
+    height: 3px;
+    background: var(--red);
+    margin: 8px auto 0;
+  }
   .announcement {
-    background: linear-gradient(135deg, #ff9500, #ff5e3a);
-    color: white;
-    padding: 14px 16px;
-    border-radius: 14px;
-    margin-bottom: 16px;
-    font-size: 15px;
+    background: var(--red);
+    color: var(--bone);
+    padding: 13px 16px;
+    margin-bottom: 18px;
+    font-size: 14px;
     line-height: 1.4;
+    font-weight: 500;
     display: none;
+    border-radius: 3px;
   }
   .card {
-    background: var(--card);
-    border-radius: 16px;
+    background: var(--paper);
+    border: 1px solid var(--paper-line);
+    border-radius: 4px;
     padding: 20px;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
+  }
+  .id-card {
+    border-left: 4px solid var(--red);
+    animation: rise 0.35s ease-out;
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .id-card { animation: none; }
   }
   .name {
-    font-size: 20px;
+    font-family: 'Oswald', sans-serif;
+    font-size: 25px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    line-height: 1.15;
+    margin-bottom: 8px;
+  }
+  .group-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px 3px 9px;
+    border: 1px solid var(--paper-line);
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--ash);
     font-weight: 600;
-    margin-bottom: 4px;
   }
   .label {
-    color: var(--hint);
+    color: var(--ash);
     font-size: 13px;
-    margin-top: 14px;
+    margin-top: 16px;
   }
   .value {
     font-size: 17px;
-    font-weight: 500;
-    margin-top: 2px;
+    font-weight: 600;
+    margin-top: 3px;
   }
   .status-badge {
-    display: inline-block;
-    padding: 4px 10px;
-    border-radius: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 3px;
     font-size: 13px;
     font-weight: 600;
-    margin-top: 6px;
+    margin-top: 8px;
   }
-  .status-active { background: #34c75933; color: #34c759; }
-  .status-overdue { background: #ff3b3033; color: #ff3b30; }
-  .status-none { background: #8e8e9333; color: #8e8e93; }
+  .status-badge::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .status-active { background: rgba(245,243,238,0.1); color: var(--bone); }
+  .status-overdue { background: rgba(208,31,31,0.18); color: var(--red-bright); }
+  .status-none { background: rgba(140,140,134,0.18); color: var(--ash); }
   .empty {
     text-align: center;
-    color: var(--hint);
-    padding: 40px 20px;
+    color: var(--ash);
+    padding: 50px 20px;
+    font-size: 14px;
+    line-height: 1.5;
   }
   .loading {
     text-align: center;
-    color: var(--hint);
-    padding: 40px 20px;
+    color: var(--ash);
+    padding: 50px 20px;
+    font-size: 14px;
   }
   button.secondary {
     width: 100%;
-    padding: 12px;
-    border: none;
-    border-radius: 12px;
-    background: #3a3a3c;
-    color: var(--text);
-    font-size: 15px;
+    padding: 13px;
+    border: 1px solid var(--paper-line);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--bone);
+    font-size: 14px;
     font-weight: 600;
-    margin-top: 16px;
+    margin-top: 18px;
+    letter-spacing: 0.02em;
   }
+  button.secondary:active { background: var(--paper-line); }
   .modal-bg {
     display: none;
     position: fixed; inset: 0;
-    background: rgba(0,0,0,0.6);
+    background: rgba(0,0,0,0.75);
     align-items: flex-end;
     justify-content: center;
     z-index: 10;
   }
   .modal {
-    background: var(--card);
+    background: var(--paper);
+    border-top: 2px solid var(--red);
     width: 100%;
     max-width: 480px;
-    border-radius: 20px 20px 0 0;
-    padding: 20px;
+    border-radius: 10px 10px 0 0;
+    padding: 22px 20px;
   }
   input {
     width: 100%;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px solid #444;
-    background: var(--bg);
-    color: var(--text);
+    padding: 11px 12px;
+    border-radius: 3px;
+    border: 1px solid var(--paper-line);
+    background: var(--ink);
+    color: var(--bone);
     font-size: 15px;
     margin-top: 6px;
   }
+  input:focus { outline: none; border-color: var(--red-bright); }
   .group-choice {
     display: flex;
     gap: 10px;
@@ -118,43 +192,55 @@
   .group-btn {
     flex: 1;
     text-align: center;
-    padding: 16px 8px;
-    border-radius: 14px;
-    background: var(--card);
-    border: 2px solid transparent;
-    font-size: 15px;
+    padding: 18px 8px;
+    border-radius: 4px;
+    background: var(--ink);
+    border: 1px solid var(--paper-line);
+    font-size: 14px;
     font-weight: 600;
+    letter-spacing: 0.02em;
   }
-  .group-btn.selected { border-color: var(--button); }
-  .group-btn .emoji { font-size: 28px; display: block; margin-bottom: 6px; }
+  .group-btn.selected { border-color: var(--red-bright); color: var(--red-bright); }
+  .group-btn .emoji { font-size: 26px; display: block; margin-bottom: 6px; }
   button.primary-full {
     width: 100%;
-    padding: 14px;
+    padding: 15px;
     border: none;
-    border-radius: 12px;
-    background: var(--button);
-    color: var(--button-text);
-    font-size: 16px;
-    font-weight: 600;
-    margin-top: 18px;
+    border-radius: 3px;
+    background: var(--red);
+    color: var(--bone);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    margin-top: 20px;
   }
+  button.primary-full:active { background: #7F1010; }
   .lang-switch {
     display: flex;
     justify-content: flex-end;
-    margin-bottom: 10px;
+    gap: 6px;
+    margin-bottom: 14px;
   }
   .lang-btn {
-    padding: 6px 12px;
-    border-radius: 20px;
-    background: var(--card);
-    color: var(--hint);
-    font-size: 13px;
-    font-weight: 600;
+    padding: 5px 11px;
+    border-radius: 3px;
+    border: 1px solid var(--paper-line);
+    background: transparent;
+    color: var(--ash);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
   }
-  .lang-btn.active { background: var(--button); color: var(--button-text); }
+  .lang-btn.active { background: var(--red); color: var(--bone); border-color: var(--red); }
 </style>
 </head>
 <body>
+
+<div class="team-banner">
+  <div class="club">UNIVERSAL JIU-JITSU</div>
+  <div class="city">BATUMI</div>
+  <div class="bar"></div>
+</div>
 
 <div class="lang-switch">
   <div class="lang-btn" id="langRu" onclick="setLang('ru')">RU</div>
@@ -169,7 +255,7 @@
     <div class="name" id="freezeModalTitle">Заморозить абонемент</div>
     <div class="label" id="freezeDaysLabelEl">На сколько дней?</div>
     <input id="freezeDays" type="number" min="1" max="90" value="7">
-    <button id="freezeSubmitBtn" class="primary" style="background:var(--button);color:var(--button-text);border:none;border-radius:12px;padding:12px;width:100%;margin-top:14px;font-weight:600;" onclick="submitFreeze()">Отправить заявку</button>
+    <button id="freezeSubmitBtn" class="primary-full" onclick="submitFreeze()">Отправить заявку</button>
   </div>
 </div>
 
@@ -312,9 +398,14 @@
         <div class="status-badge status-none">${t("noSubscription")}</div>`;
     }
 
+    const groupTag = data.group_type === 'kids'
+      ? `<span class="group-tag">🧒 Kids</span>`
+      : `<span class="group-tag">👤 Adult</span>`;
+
     content.innerHTML = `
-      <div class="card">
+      <div class="card id-card">
         <div class="name">${data.full_name}</div>
+        ${groupTag}
         ${subHtml}
         ${data.subscription ? `<button class="secondary" onclick="openFreezeModal()">${t("freezeBtn")}</button>` : ''}
       </div>
