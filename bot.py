@@ -22,6 +22,8 @@ Telegram-бот для учёта абонементов борцовского 
     /add_training <ДД.ММ.ГГГГ ЧЧ:ММ> <название> [макс_участников]
         пример: /add_training 20.09.2026 18:00 "Вечерняя группа" 15
     /trainings_all               — все ближайшие тренировки с числом записей
+    /backup                      — прислать файл базы данных (для сохранения)
+    /restore (в ответ на файл)   — восстановить базу из присланного файла
 
 Напоминания об истечении абонемента (за 3 дня) рассылаются автоматически раз в сутки.
 """
@@ -344,6 +346,60 @@ async def trainings_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await trainings(update, context)
 
 
+async def backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    if not os.path.exists(db.DB_PATH):
+        await update.message.reply_text("Файл базы данных ещё не создан.")
+        return
+    today = datetime.now().strftime("%Y-%m-%d")
+    with open(db.DB_PATH, "rb") as f:
+        await update.message.reply_document(
+            document=f,
+            filename=f"gym_backup_{today}.db",
+            caption=(
+                "Резервная копия базы данных.\n"
+                "Чтобы восстановить: ответьте на это сообщение командой /restore."
+            ),
+        )
+
+
+async def restore(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+
+    doc = update.message.document or (
+        update.message.reply_to_message.document if update.message.reply_to_message else None
+    )
+    if not doc:
+        await update.message.reply_text(
+            "Прикрепите файл базы (.db) к этому сообщению или отправьте /restore "
+            "в ответ на сообщение с файлом."
+        )
+        return
+
+    await update.message.reply_text("⚠️ Восстанавливаю базу данных из файла...")
+    tg_file = await context.bot.get_file(doc.file_id)
+    tmp_path = db.DB_PATH + ".incoming"
+    await tg_file.download_to_drive(tmp_path)
+
+    # проверяем, что это действительно рабочая SQLite-база, прежде чем заменять текущую
+    import sqlite3
+    try:
+        test_conn = sqlite3.connect(tmp_path)
+        test_conn.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
+        test_conn.close()
+    except Exception:
+        os.remove(tmp_path)
+        await update.message.reply_text(
+            "Этот файл не похож на корректную базу данных. Восстановление отменено."
+        )
+        return
+
+    os.replace(tmp_path, db.DB_PATH)
+    await update.message.reply_text("✅ База данных восстановлена из присланного файла.")
+
+
 # ---------------- Фоновая задача: напоминания ----------------
 
 async def remind_expiring_subscriptions(app: Application):
@@ -394,6 +450,8 @@ def main():
     app.add_handler(CommandHandler("clients", clients_list))
     app.add_handler(CommandHandler("add_training", add_training_cmd))
     app.add_handler(CommandHandler("trainings_all", trainings_all))
+    app.add_handler(CommandHandler("backup", backup))
+    app.add_handler(CommandHandler("restore", restore))
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(

@@ -2,12 +2,16 @@
 Работа с базой данных (SQLite).
 Все функции синхронные — для такого размера бота этого достаточно.
 """
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 from dateutil.relativedelta import relativedelta
 
-DB_PATH = "gym.db"
+DB_PATH = os.getenv("DB_PATH", "gym.db")
+_db_dir = os.path.dirname(DB_PATH)
+if _db_dir:
+    os.makedirs(_db_dir, exist_ok=True)
 
 
 @contextmanager
