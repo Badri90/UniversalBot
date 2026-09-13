@@ -3,17 +3,13 @@ Telegram-бот для учёта абонементов борцовского 
 
 Возможности:
   Для клиентов:
-    Кнопка «Открыть кабинет» рядом с полем ввода (или /app) — регистрация
-    (группа Adult/Kids, имя, дата рождения), статус абонемента, заявка на
-    заморозку — всё внутри мини-аппа, не через текстовые команды.
-    /my              — мой абонемент (дублирует кабинет, текстом)
-    /trainings       — ближайшие тренировки
-    /book <id>       — записаться на тренировку
-    /cancel <id>     — отменить запись
-    /mybookings      — мои записи
+    /start — единственная доступная команда. Открывает мини-апп (личный
+    кабинет), где происходит вся остальная работа: регистрация, статус
+    абонемента, заморозка, активация абонемента. Прочие команды для
+    клиентов не отвечают.
 
   Для админа (ID из ADMIN_IDS в .env):
-    /admin_app                   — панель тренера (клиенты, заморозки, объявление)
+    /admin_app                   — панель тренера (клиенты, заявки, объявление)
     /clients                     — список клиентов с номерами (текстом)
     /add_sub <номер> <название> <ДД.ММ.ГГГГ> [месяцев] [посещений]
         пример: /add_sub 1 "Месячный" 05.10.2026
@@ -25,7 +21,9 @@ Telegram-бот для учёта абонементов борцовского 
     /backup                      — прислать файл базы данных (для сохранения)
     /restore (в ответ на файл)   — восстановить базу из присланного файла
 
-Напоминания об истечении абонемента (за 3 дня) рассылаются автоматически раз в сутки.
+Напоминания об оплате рассылаются автоматически раз в сутки: за 3 дня до
+истечения абонемента, в день истечения, и затем каждый день, пока клиент
+не оплатит новый абонемент.
 """
 import logging
 import os
@@ -70,7 +68,7 @@ def cabinet_keyboard():
     if not WEBAPP_URL:
         return None
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("📱 Открыть личный кабинет", web_app=WebAppInfo(url=WEBAPP_URL))
+        InlineKeyboardButton("Открыть личный кабинет", web_app=WebAppInfo(url=WEBAPP_URL))
     ]])
 
 
@@ -106,7 +104,7 @@ async def open_admin_app(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Задайте WEBAPP_URL в переменных окружения.")
         return
     kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🛠 Открыть панель тренера", web_app=WebAppInfo(url=f"{WEBAPP_URL}/admin"))
+        InlineKeyboardButton("Открыть панель тренера", web_app=WebAppInfo(url=f"{WEBAPP_URL}/admin"))
     ]])
     await update.message.reply_text("Панель тренера:", reply_markup=kb)
 
@@ -378,7 +376,7 @@ async def restore(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    await update.message.reply_text("⚠️ Восстанавливаю базу данных из файла...")
+    await update.message.reply_text("Восстанавливаю базу данных из файла...")
     tg_file = await context.bot.get_file(doc.file_id)
     tmp_path = db.DB_PATH + ".incoming"
     await tg_file.download_to_drive(tmp_path)
@@ -397,21 +395,44 @@ async def restore(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     os.replace(tmp_path, db.DB_PATH)
-    await update.message.reply_text("✅ База данных восстановлена из присланного файла.")
+    await update.message.reply_text("База данных восстановлена из присланного файла.")
 
 
 # ---------------- Фоновая задача: напоминания ----------------
 
 async def remind_expiring_subscriptions(app: Application):
-    db.expire_old_subscriptions()
-    for sub in db.subscriptions_expiring_soon(days_ahead=3):
-        try:
-            await app.bot.send_message(
-                sub["telegram_id"],
-                f"Напоминаем: по абонементу «{sub['title']}» нужно оплатить "
-                f"до {fmt_date(sub['end_date'])}.",
+    today = datetime.now().date()
+    today_str = today.isoformat()
+
+    for sub in db.latest_subscriptions_for_reminders():
+        end_date = datetime.fromisoformat(sub["end_date"]).date()
+        days_left = (end_date - today).days
+
+        # Уже сегодня отправляли — не дублируем
+        if sub["last_reminder_date"] == today_str:
+            continue
+
+        should_notify = days_left == 3 or days_left == 0 or days_left < 0
+
+        if not should_notify:
+            continue
+
+        if days_left < 0:
+            text = (
+                f"Абонемент «{sub['title']}» просрочен с {fmt_date(sub['end_date'])}. "
+                "Пожалуйста, оплатите как можно скорее."
             )
-            db.mark_notified(sub["id"])
+        elif days_left == 0:
+            text = f"Сегодня последний день абонемента «{sub['title']}». Не забудьте оплатить."
+        else:
+            text = (
+                f"Абонемент «{sub['title']}» истекает {fmt_date(sub['end_date'])} "
+                "(через 3 дня). Пожалуйста, продлите вовремя."
+            )
+
+        try:
+            await app.bot.send_message(sub["telegram_id"], text)
+            db.set_last_reminder_date(sub["id"], today_str)
         except Exception:
             logger.warning("Не удалось отправить напоминание клиенту %s", sub["telegram_id"])
 
@@ -436,12 +457,6 @@ def main():
     app = Application.builder().token(BOT_TOKEN).post_init(setup_menu_button).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("my", my_subscription))
-    app.add_handler(CommandHandler("trainings", trainings))
-    app.add_handler(CommandHandler("book", book))
-    app.add_handler(CommandHandler("cancel", cancel))
-    app.add_handler(CommandHandler("mybookings", my_bookings))
-    app.add_handler(CommandHandler("app", open_app))
     app.add_handler(CommandHandler("admin_app", open_admin_app))
 
     app.add_handler(CommandHandler("add_client", add_client))

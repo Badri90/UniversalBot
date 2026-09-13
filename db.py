@@ -37,6 +37,7 @@ def init_db():
                 phone TEXT,
                 group_type TEXT NOT NULL DEFAULT 'adult',
                 birth_date TEXT,
+                note TEXT,
                 created_at TEXT NOT NULL
             );
 
@@ -44,6 +45,15 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
                 days_requested INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                decided_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS activation_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+                requested_date TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_at TEXT NOT NULL,
                 decided_at TEXT
@@ -58,7 +68,8 @@ def init_db():
                 visits_total INTEGER,
                 visits_left INTEGER,
                 status TEXT NOT NULL DEFAULT 'active',
-                notified_expiring INTEGER NOT NULL DEFAULT 0
+                notified_expiring INTEGER NOT NULL DEFAULT 0,
+                last_reminder_date TEXT
             );
 
             CREATE TABLE IF NOT EXISTS trainings (
@@ -89,6 +100,12 @@ def init_db():
             conn.execute("ALTER TABLE clients ADD COLUMN group_type TEXT NOT NULL DEFAULT 'adult'")
         if "birth_date" not in cols:
             conn.execute("ALTER TABLE clients ADD COLUMN birth_date TEXT")
+        if "note" not in cols:
+            conn.execute("ALTER TABLE clients ADD COLUMN note TEXT")
+
+        sub_cols = [row["name"] for row in conn.execute("PRAGMA table_info(subscriptions)")]
+        if "last_reminder_date" not in sub_cols:
+            conn.execute("ALTER TABLE subscriptions ADD COLUMN last_reminder_date TEXT")
 
 
 # ---------- Клиенты ----------
@@ -147,6 +164,11 @@ def update_client_name(client_id: int, full_name: str):
         conn.execute("UPDATE clients SET full_name = ? WHERE id = ?", (full_name, client_id))
 
 
+def update_client_note(client_id: int, note: str):
+    with get_conn() as conn:
+        conn.execute("UPDATE clients SET note = ? WHERE id = ?", (note, client_id))
+
+
 def delete_client(client_id: int):
     with get_conn() as conn:
         conn.execute("DELETE FROM clients WHERE id = ?", (client_id,))
@@ -155,8 +177,8 @@ def delete_client(client_id: int):
 def list_clients_with_subscription(group_type: str = None):
     """Для админ-панели мини-аппа: клиенты + их текущий активный абонемент (если есть)."""
     query = """
-        SELECT c.id, c.full_name, c.telegram_id, c.group_type, c.birth_date,
-               s.title AS sub_title, s.end_date AS sub_end_date,
+        SELECT c.id, c.full_name, c.telegram_id, c.group_type, c.birth_date, c.note,
+               s.id AS sub_id, s.title AS sub_title, s.end_date AS sub_end_date,
                s.visits_total, s.visits_left, s.status AS sub_status
         FROM clients c
         LEFT JOIN subscriptions s ON s.id = (
@@ -238,6 +260,72 @@ def decide_freeze_request(request_id: int, approve: bool):
     return req
 
 
+# ---------- Активация абонемента ----------
+
+def create_activation_request(client_id: int, requested_date: str):
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO activation_requests (client_id, requested_date, status, created_at)
+            VALUES (?, ?, 'pending', ?)
+            """,
+            (client_id, requested_date, datetime.now().isoformat()),
+        )
+
+
+def list_pending_activation_requests():
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT a.*, c.full_name, c.telegram_id FROM activation_requests a
+            JOIN clients c ON c.id = a.client_id
+            WHERE a.status = 'pending'
+            ORDER BY a.created_at
+            """
+        ).fetchall()
+
+
+def get_activation_request(request_id: int):
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM activation_requests WHERE id = ?", (request_id,)
+        ).fetchone()
+
+
+def update_activation_request_date(request_id: int, new_date: str):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE activation_requests SET requested_date = ? WHERE id = ? AND status = 'pending'",
+            (new_date, request_id),
+        )
+
+
+def decide_activation_request(request_id: int, approve: bool, months: int = 1):
+    """Если одобрено — создаёт активный абонемент клиента, начиная с requested_date."""
+    req = get_activation_request(request_id)
+    if not req or req["status"] != "pending":
+        return None
+
+    with get_conn() as conn:
+        new_status = "approved" if approve else "rejected"
+        conn.execute(
+            "UPDATE activation_requests SET status = ?, decided_at = ? WHERE id = ?",
+            (new_status, datetime.now().isoformat(), request_id),
+        )
+        if approve:
+            start = datetime.fromisoformat(req["requested_date"])
+            end = start + relativedelta(months=months)
+            conn.execute(
+                """
+                INSERT INTO subscriptions
+                    (client_id, title, start_date, end_date, visits_total, visits_left, status)
+                VALUES (?, ?, ?, ?, NULL, NULL, 'active')
+                """,
+                (req["client_id"], "Абонемент", start.isoformat(), end.isoformat()),
+            )
+    return req
+
+
 def find_clients_by_name(name_part: str):
     with get_conn() as conn:
         return conn.execute(
@@ -295,32 +383,32 @@ def use_visit(subscription_id: int):
             )
 
 
-def expire_old_subscriptions():
-    """Помечает просроченные абонементы как expired. Возвращает список истёкших (для инфо)."""
-    now = datetime.now().isoformat()
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE subscriptions SET status = 'expired' "
-            "WHERE status = 'active' AND end_date < ?",
-            (now,),
-        )
-
-
-def subscriptions_expiring_soon(days_ahead: int = 3):
-    """Активные абонементы, которые истекают в ближайшие days_ahead дней и ещё не уведомлены."""
-    now = datetime.now()
-    soon = now + timedelta(days=days_ahead)
+def latest_subscriptions_for_reminders():
+    """
+    Последний абонемент каждого клиента (независимо от статуса) — используется
+    для рассылки напоминаний об оплате: за 3 дня, в день истечения, и затем
+    каждый день, пока клиент не оплатит новый абонемент.
+    """
     with get_conn() as conn:
         return conn.execute(
             """
             SELECT s.*, c.telegram_id, c.full_name FROM subscriptions s
             JOIN clients c ON c.id = s.client_id
-            WHERE s.status = 'active'
-              AND s.end_date BETWEEN ? AND ?
-              AND s.notified_expiring = 0
-            """,
-            (now.isoformat(), soon.isoformat()),
+            WHERE s.id = (
+                SELECT id FROM subscriptions
+                WHERE client_id = s.client_id
+                ORDER BY end_date DESC LIMIT 1
+            )
+            """
         ).fetchall()
+
+
+def set_last_reminder_date(subscription_id: int, date_str: str):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE subscriptions SET last_reminder_date = ? WHERE id = ?",
+            (date_str, subscription_id),
+        )
 
 
 def list_payment_status(days_ahead: int = 5):
@@ -340,14 +428,6 @@ def list_payment_status(days_ahead: int = 5):
             """,
             (horizon.isoformat(),),
         ).fetchall()
-
-
-def mark_notified(subscription_id: int):
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE subscriptions SET notified_expiring = 1 WHERE id = ?",
-            (subscription_id,),
-        )
 
 
 # ---------- Тренировки и записи ----------

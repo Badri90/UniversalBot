@@ -142,7 +142,7 @@ def api_register():
     for admin_id in ADMIN_IDS:
         notify_telegram(
             admin_id,
-            f"🆕 Новая регистрация: {full_name} "
+            f"Новая регистрация: {full_name} "
             f"({'Kids' if group_type == 'kids' else 'Adult'})",
         )
 
@@ -172,13 +172,20 @@ def api_admin_clients():
         if c["sub_end_date"]:
             end = datetime.fromisoformat(c["sub_end_date"])
             end_date = fmt_date(c["sub_end_date"])
-            status = "overdue" if end < now else "active"
+            days_left = (end.date() - now.date()).days
+            if days_left < 0:
+                status = "overdue"
+            elif days_left <= 3:
+                status = "expiring"
+            else:
+                status = "active"
         result.append({
             "id": c["id"],
             "full_name": c["full_name"],
             "telegram_id": c["telegram_id"],
             "group_type": c["group_type"],
             "birth_date": c["birth_date"],
+            "note": c["note"],
             "sub_title": c["sub_title"],
             "sub_end_date": end_date,
             "visits_left": c["visits_left"],
@@ -186,6 +193,22 @@ def api_admin_clients():
             "status": status,
         })
     return jsonify({"clients": result})
+
+
+@flask_app.route("/api/admin/set_note", methods=["POST"])
+def api_admin_set_note():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    client_id = body.get("client_id")
+    note = body.get("note", "")
+    if not client_id:
+        return jsonify({"error": "bad_request"}), 400
+
+    db.update_client_note(client_id, note)
+    return jsonify({"ok": True})
 
 
 @flask_app.route("/api/admin/edit_client", methods=["POST"])
@@ -297,7 +320,7 @@ def api_freeze_request():
     for admin_id in ADMIN_IDS:
         notify_telegram(
             admin_id,
-            f"❄️ Заявка на заморозку от {client['full_name']} на {days} дн.\n"
+            f"Заявка на заморозку от {client['full_name']} на {days} дн.\n"
             f"Откройте /admin_app, чтобы одобрить или отклонить.",
         )
 
@@ -340,13 +363,112 @@ def api_admin_freeze_decision():
         if approve:
             notify_telegram(
                 client["telegram_id"],
-                f"✅ Ваша заявка на заморозку ({req['days_requested']} дн.) одобрена. "
+                f"Ваша заявка на заморозку ({req['days_requested']} дн.) одобрена. "
                 "Дата следующей оплаты сдвинута.",
             )
         else:
             notify_telegram(
                 client["telegram_id"],
-                f"❌ Ваша заявка на заморозку ({req['days_requested']} дн.) отклонена. "
+                f"Ваша заявка на заморозку ({req['days_requested']} дн.) отклонена. "
+                "Свяжитесь с тренером для уточнения.",
+            )
+
+    return jsonify({"ok": True})
+
+
+# ---------------- API: активация абонемента ----------------
+
+@flask_app.route("/api/activate_request", methods=["POST"])
+def api_activate_request():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not user:
+        return jsonify({"error": "auth_failed"}), 401
+
+    client = db.get_client_by_telegram_id(user["id"])
+    if not client:
+        return jsonify({"error": "not_registered"}), 404
+
+    requested_date = (body.get("requested_date") or "").strip()
+    try:
+        datetime.strptime(requested_date, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "bad_date"}), 400
+
+    db.create_activation_request(client["id"], requested_date)
+
+    for admin_id in ADMIN_IDS:
+        notify_telegram(
+            admin_id,
+            f"Заявка на активацию абонемента от {client['full_name']} "
+            f"с {fmt_date(requested_date)}.\n"
+            f"Откройте /admin_app, чтобы одобрить или отклонить.",
+        )
+
+    return jsonify({"ok": True})
+
+
+@flask_app.route("/api/admin/activation_requests")
+def api_admin_activation_requests():
+    init_data = request.args.get("initData", "")
+    user = validate_init_data(init_data)
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    rows = db.list_pending_activation_requests()
+    result = [{
+        "id": r["id"],
+        "full_name": r["full_name"],
+        "requested_date": r["requested_date"][:10],
+        "requested_date_display": fmt_date(r["requested_date"]),
+        "created_at": fmt_date(r["created_at"]),
+    } for r in rows]
+    return jsonify({"requests": result})
+
+
+@flask_app.route("/api/admin/activation_edit_date", methods=["POST"])
+def api_admin_activation_edit_date():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    request_id = body.get("request_id")
+    new_date = (body.get("new_date") or "").strip()
+    try:
+        datetime.strptime(new_date, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "bad_date"}), 400
+
+    db.update_activation_request_date(request_id, new_date)
+    return jsonify({"ok": True})
+
+
+@flask_app.route("/api/admin/activation_decision", methods=["POST"])
+def api_admin_activation_decision():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    request_id = body.get("request_id")
+    approve = bool(body.get("approve"))
+
+    req = db.decide_activation_request(request_id, approve)
+    if not req:
+        return jsonify({"error": "not_found_or_decided"}), 404
+
+    client = db.get_client_by_id(req["client_id"])
+    if client:
+        if approve:
+            notify_telegram(
+                client["telegram_id"],
+                f"Ваш абонемент активирован с {fmt_date(req['requested_date'])}.",
+            )
+        else:
+            notify_telegram(
+                client["telegram_id"],
+                "Заявка на активацию абонемента отклонена. "
                 "Свяжитесь с тренером для уточнения.",
             )
 
