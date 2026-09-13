@@ -3,199 +3,259 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Панель тренера</title>
+<title>Universal Jiu-Jitsu Batumi</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: var(--tg-theme-bg-color, #0f0f0f);
-    --text: var(--tg-theme-text-color, #ffffff);
-    --hint: var(--tg-theme-hint-color, #999999);
-    --button: var(--tg-theme-button-color, #2ea6ff);
-    --button-text: var(--tg-theme-button-text-color, #ffffff);
-    --card: var(--tg-theme-secondary-bg-color, #1c1c1e);
+    --ink: #0A0A0A;
+    --paper: #161616;
+    --paper-line: #2B2B2B;
+    --red: #A31515;
+    --red-bright: #D01F1F;
+    --bone: #F5F3EE;
+    --ash: #8C8C86;
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
     margin: 0;
-    padding: 16px;
-    background: var(--bg);
-    color: var(--text);
+    padding: 18px 16px 32px;
+    background: var(--ink);
+    color: var(--bone);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
-  h2 { font-size: 18px; margin: 20px 0 10px; }
-  .tabs {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 16px;
+  .display {
+    font-family: 'Bebas Neue', sans-serif;
+    letter-spacing: 0.03em;
   }
-  .tab {
-    flex: 1;
+  .team-banner {
     text-align: center;
-    padding: 10px;
-    border-radius: 10px;
-    background: var(--card);
-    color: var(--hint);
-    font-weight: 600;
+    padding-bottom: 16px;
+    margin-bottom: 6px;
+  }
+  .team-banner .club {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 0.06em;
+    line-height: 1.1;
+  }
+  .team-banner .city {
+    color: var(--red-bright);
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 0.06em;
+  }
+  .team-banner .bar {
+    width: 46px;
+    height: 3px;
+    background: var(--red);
+    margin: 8px auto 0;
+  }
+  .announcement {
+    background: var(--red);
+    color: var(--bone);
+    padding: 13px 16px;
+    margin-bottom: 18px;
     font-size: 14px;
+    line-height: 1.4;
+    font-weight: 500;
+    display: none;
+    border-radius: 3px;
   }
-  .tab.active { background: var(--button); color: var(--button-text); }
   .card {
-    background: var(--card);
-    border-radius: 14px;
-    padding: 14px 16px;
-    margin-bottom: 10px;
+    background: var(--paper);
+    border: 1px solid var(--paper-line);
+    border-radius: 4px;
+    padding: 20px;
+    margin-bottom: 14px;
   }
-  .client-name { font-size: 16px; font-weight: 600; }
-  .client-sub { color: var(--hint); font-size: 13px; margin-top: 4px; }
-  .status-badge {
-    display: inline-block;
-    padding: 3px 9px;
+  .id-card {
+    border-left: 4px solid var(--red);
+    animation: rise 0.35s ease-out;
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .id-card { animation: none; }
+  }
+  .name {
+    font-family: 'Oswald', sans-serif;
+    font-size: 25px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    line-height: 1.15;
+    margin-bottom: 8px;
+  }
+  .group-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px 3px 9px;
+    border: 1px solid var(--paper-line);
     border-radius: 20px;
     font-size: 12px;
+    color: var(--ash);
     font-weight: 600;
-    margin-top: 6px;
   }
-  .status-active { background: #34c75933; color: #34c759; }
-  .status-overdue { background: #ff3b3033; color: #ff3b30; }
-  .status-none { background: #8e8e9333; color: #8e8e93; }
-  button.primary {
-    width: 100%;
-    padding: 12px;
-    border: none;
-    border-radius: 12px;
-    background: var(--button);
-    color: var(--button-text);
-    font-size: 15px;
+  .label {
+    color: var(--ash);
+    font-size: 13px;
+    margin-top: 16px;
+  }
+  .value {
+    font-size: 17px;
+    font-weight: 600;
+    margin-top: 3px;
+  }
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 3px;
+    font-size: 13px;
     font-weight: 600;
     margin-top: 8px;
   }
-  input, textarea {
-    width: 100%;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px solid #444;
-    background: var(--bg);
-    color: var(--text);
-    font-size: 15px;
-    margin-top: 6px;
+  .status-badge::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
   }
-  .label { color: var(--hint); font-size: 13px; margin-top: 12px; }
+  .status-active { background: rgba(245,243,238,0.1); color: var(--bone); }
+  .status-overdue { background: rgba(208,31,31,0.18); color: var(--red-bright); }
+  .status-none { background: rgba(140,140,134,0.18); color: var(--ash); }
+  .empty {
+    text-align: center;
+    color: var(--ash);
+    padding: 50px 20px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .loading {
+    text-align: center;
+    color: var(--ash);
+    padding: 50px 20px;
+    font-size: 14px;
+  }
+  button.secondary {
+    width: 100%;
+    padding: 13px;
+    border: 1px solid var(--paper-line);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--bone);
+    font-size: 14px;
+    font-weight: 600;
+    margin-top: 18px;
+    letter-spacing: 0.02em;
+  }
+  button.secondary:active { background: var(--paper-line); }
   .modal-bg {
     display: none;
     position: fixed; inset: 0;
-    background: rgba(0,0,0,0.6);
+    background: rgba(0,0,0,0.75);
     align-items: flex-end;
     justify-content: center;
     z-index: 10;
   }
   .modal {
-    background: var(--card);
+    background: var(--paper);
+    border-top: 2px solid var(--red);
     width: 100%;
     max-width: 480px;
-    border-radius: 20px 20px 0 0;
-    padding: 20px;
+    border-radius: 10px 10px 0 0;
+    padding: 22px 20px;
   }
-  .empty { text-align: center; color: var(--hint); padding: 40px 20px; }
-  .subtabs {
+  input {
+    width: 100%;
+    padding: 11px 12px;
+    border-radius: 3px;
+    border: 1px solid var(--paper-line);
+    background: var(--ink);
+    color: var(--bone);
+    font-size: 15px;
+    margin-top: 6px;
+  }
+  input:focus { outline: none; border-color: var(--red-bright); }
+  .group-choice {
     display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .group-btn {
+    flex: 1;
+    text-align: center;
+    padding: 18px 8px;
+    border-radius: 4px;
+    background: var(--ink);
+    border: 1px solid var(--paper-line);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .group-btn.selected { border-color: var(--red-bright); color: var(--red-bright); }
+  .group-btn .emoji { font-size: 26px; display: block; margin-bottom: 6px; }
+  button.primary-full {
+    width: 100%;
+    padding: 15px;
+    border: none;
+    border-radius: 3px;
+    background: var(--red);
+    color: var(--bone);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    margin-top: 20px;
+  }
+  button.primary-full:active { background: #7F1010; }
+  .lang-switch {
+    display: flex;
+    justify-content: flex-end;
     gap: 6px;
     margin-bottom: 14px;
   }
-  .subtab {
-    flex: 1;
-    text-align: center;
-    padding: 8px;
-    border-radius: 8px;
+  .lang-btn {
+    padding: 5px 11px;
+    border-radius: 3px;
+    border: 1px solid var(--paper-line);
     background: transparent;
-    border: 1px solid #444;
-    color: var(--hint);
-    font-size: 13px;
-    font-weight: 600;
+    color: var(--ash);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
   }
-  .subtab.active { background: var(--hint); color: var(--bg); border-color: var(--hint); }
-  .badge-count {
-    display: inline-block;
-    background: #ff3b30;
-    color: white;
-    border-radius: 10px;
-    padding: 1px 7px;
-    font-size: 11px;
-    margin-left: 4px;
-  }
-  .row-buttons { display: flex; gap: 8px; margin-top: 8px; }
-  .row-buttons button { flex: 1; margin-top: 0; }
-  button.small-secondary {
-    padding: 10px;
-    border: none;
-    border-radius: 10px;
-    background: #3a3a3c;
-    color: var(--text);
-    font-size: 13px;
-    font-weight: 600;
-  }
-  button.small-danger {
-    padding: 10px;
-    border: none;
-    border-radius: 10px;
-    background: #ff3b3033;
-    color: #ff3b30;
-    font-size: 13px;
-    font-weight: 600;
-  }
+  .lang-btn.active { background: var(--red); color: var(--bone); border-color: var(--red); }
 </style>
 </head>
 <body>
 
-<div class="tabs">
-  <div class="tab active" id="tabClients" onclick="showTab('clients')">Клиенты</div>
-  <div class="tab" id="tabFreeze" onclick="showTab('freeze')">Заморозки<span id="freezeBadge"></span></div>
-  <div class="tab" id="tabAnn" onclick="showTab('announcement')">Объявление</div>
+<div class="team-banner">
+  <div class="club">UNIVERSAL JIU-JITSU</div>
+  <div class="city">BATUMI</div>
+  <div class="bar"></div>
 </div>
 
-<div id="clientsView">
-  <div class="subtabs">
-    <div class="subtab active" id="subAll" onclick="setGroup(null)">Все</div>
-    <div class="subtab" id="subAdult" onclick="setGroup('adult')">Adult</div>
-    <div class="subtab" id="subKids" onclick="setGroup('kids')">Kids</div>
-  </div>
-  <input id="searchInput" placeholder="🔍 Поиск по имени или фамилии" oninput="renderClients()" style="margin-bottom:10px;">
-  <div class="subtabs">
-    <div class="subtab active" id="sortAlpha" onclick="setSort('alpha')">А-Я</div>
-    <div class="subtab" id="sortBirth" onclick="setSort('birth')">По дате рождения</div>
-  </div>
-  <div id="clientsList"><div class="empty">Загрузка…</div></div>
+<div class="lang-switch">
+  <div class="lang-btn" id="langRu" onclick="setLang('ru')">RU</div>
+  <div class="lang-btn" id="langEn" onclick="setLang('en')" style="margin-left:6px;">EN</div>
 </div>
 
-<div id="freezeView" style="display:none;">
-  <div id="freezeList"><div class="empty">Загрузка…</div></div>
-</div>
+<div id="announcement" class="announcement"></div>
+<div id="content" class="loading">…</div>
 
-<div id="announcementView" style="display:none;">
-  <div class="label">Текст объявления для всех клиентов</div>
-  <textarea id="annText" rows="4" placeholder="Например: 20 сентября зал закрыт"></textarea>
-  <button class="primary" onclick="saveAnnouncement()">Сохранить</button>
-</div>
-
-<div class="modal-bg" id="modalBg">
+<div class="modal-bg" id="freezeModalBg">
   <div class="modal">
-    <h2 id="modalClientName">Отметить оплату</h2>
-    <div class="label">Название абонемента</div>
-    <input id="mTitle" value="Абонемент">
-    <div class="label">Дата оплаты</div>
-    <input id="mDate" type="date">
-    <div class="label">Срок (месяцев)</div>
-    <input id="mMonths" type="number" value="1" min="1">
-    <div class="label">Посещений (необязательно)</div>
-    <input id="mVisits" type="number" placeholder="оставить пустым если безлимит">
-    <button class="primary" onclick="submitPayment()">Сохранить оплату</button>
-  </div>
-</div>
-
-<div class="modal-bg" id="editModalBg">
-  <div class="modal">
-    <h2>Редактировать имя</h2>
-    <input id="eName" placeholder="Имя и фамилия">
-    <button class="primary" onclick="submitEdit()">Сохранить</button>
+    <div class="name" id="freezeModalTitle">Заморозить абонемент</div>
+    <div class="label" id="freezeDaysLabelEl">На сколько дней?</div>
+    <input id="freezeDays" type="number" min="1" max="90" value="7">
+    <button id="freezeSubmitBtn" class="primary-full" onclick="submitFreeze()">Отправить заявку</button>
   </div>
 </div>
 
@@ -204,248 +264,248 @@
   if (tg) {
     try { tg.ready(); tg.expand(); } catch (e) {}
   }
-  const initData = (tg && tg.initData) || "";
 
-  let currentClientId = null;
-  let currentGroup = null;
-  let currentSort = "alpha";
-  let allClients = [];
+  const T = {
+    ru: {
+      loading: "Загрузка…",
+      openFromBot: "Откройте эту страницу через кнопку «Открыть личный кабинет» в боте, а не напрямую по ссылке.",
+      loadError: "Не удалось загрузить данные. Попробуйте позже.",
+      subscription: "Абонемент",
+      validUntil: "Действует до",
+      visitsLeft: "Осталось посещений",
+      noSubscription: "Нет активного абонемента",
+      freezeBtn: "❄️ Заморозить абонемент",
+      registration: "Регистрация",
+      chooseGroup: "Выберите группу",
+      nameLabel: "Имя и фамилия",
+      nameLabelKids: "Имя и фамилия ребёнка",
+      namePlaceholder: "Например: Иванов Иван",
+      birthDate: "Дата рождения",
+      registerBtn: "Зарегистрироваться",
+      chooseGroupAlert: "Выберите группу: Adult или Kids",
+      enterNameAlert: "Введите имя и фамилию",
+      registerFail: "Не удалось зарегистрироваться. Попробуйте ещё раз.",
+      networkError: "Ошибка сети. Попробуйте позже.",
+      freezeTitle: "Заморозить абонемент",
+      freezeDaysLabel: "На сколько дней?",
+      freezeSubmit: "Отправить заявку",
+      freezeSent: "Заявка отправлена тренеру. Ждите подтверждения.",
+      freezeFail: "Не удалось отправить заявку. Попробуйте позже.",
+      of: "из",
+    },
+    en: {
+      loading: "Loading…",
+      openFromBot: "Please open this page using the “Open cabinet” button in the bot, not directly by link.",
+      loadError: "Couldn't load data. Please try again later.",
+      subscription: "Subscription",
+      validUntil: "Valid until",
+      visitsLeft: "Visits left",
+      noSubscription: "No active subscription",
+      freezeBtn: "❄️ Freeze subscription",
+      registration: "Registration",
+      chooseGroup: "Choose a group",
+      nameLabel: "First and last name",
+      nameLabelKids: "Child's first and last name",
+      namePlaceholder: "e.g. John Smith",
+      birthDate: "Date of birth",
+      registerBtn: "Register",
+      chooseGroupAlert: "Please choose a group: Adult or Kids",
+      enterNameAlert: "Please enter first and last name",
+      registerFail: "Registration failed. Please try again.",
+      networkError: "Network error. Please try again later.",
+      freezeTitle: "Freeze subscription",
+      freezeDaysLabel: "How many days?",
+      freezeSubmit: "Send request",
+      freezeSent: "Request sent to your trainer. Awaiting approval.",
+      freezeFail: "Couldn't send the request. Please try again later.",
+      of: "of",
+    },
+  };
 
-  function showTab(tab) {
-    document.getElementById("tabClients").classList.toggle("active", tab === "clients");
-    document.getElementById("tabFreeze").classList.toggle("active", tab === "freeze");
-    document.getElementById("tabAnn").classList.toggle("active", tab === "announcement");
-    document.getElementById("clientsView").style.display = tab === "clients" ? "block" : "none";
-    document.getElementById("freezeView").style.display = tab === "freeze" ? "block" : "none";
-    document.getElementById("announcementView").style.display = tab === "announcement" ? "block" : "none";
-    if (tab === "announcement") loadAnnouncement();
-    if (tab === "freeze") loadFreezeRequests();
+  let lang = localStorage.getItem("gym_lang") || "ru";
+  let lastData = null;
+
+  function t(key) {
+    return T[lang][key];
   }
 
-  function setGroup(group) {
-    currentGroup = group;
-    document.getElementById("subAll").classList.toggle("active", group === null);
-    document.getElementById("subAdult").classList.toggle("active", group === "adult");
-    document.getElementById("subKids").classList.toggle("active", group === "kids");
-    loadClients();
-  }
-
-  function setSort(sort) {
-    currentSort = sort;
-    document.getElementById("sortAlpha").classList.toggle("active", sort === "alpha");
-    document.getElementById("sortBirth").classList.toggle("active", sort === "birth");
-    renderClients();
-  }
-
-  async function loadClients() {
-    const q = currentGroup ? "&group=" + currentGroup : "";
-    const res = await fetch("/api/admin/clients?initData=" + encodeURIComponent(initData) + q);
-    const data = await res.json();
-
-    if (data.error) {
-      document.getElementById("clientsList").innerHTML =
-        '<div class="empty">Нет доступа. Эта панель только для тренера.</div>';
-      return;
-    }
-    allClients = data.clients;
-    renderClients();
-  }
-
-  function renderClients() {
-    const view = document.getElementById("clientsList");
-    const searchTerm = (document.getElementById("searchInput").value || "").toLowerCase().trim();
-
-    let list = allClients.filter(c => c.full_name.toLowerCase().includes(searchTerm));
-
-    if (currentSort === "birth") {
-      list = list.slice().sort((a, b) => {
-        if (!a.birth_date) return 1;
-        if (!b.birth_date) return -1;
-        return a.birth_date.localeCompare(b.birth_date);
-      });
+  function setLang(newLang) {
+    lang = newLang;
+    localStorage.setItem("gym_lang", lang);
+    document.getElementById("langRu").classList.toggle("active", lang === "ru");
+    document.getElementById("langEn").classList.toggle("active", lang === "en");
+    document.getElementById("freezeModalTitle").textContent = t("freezeTitle");
+    document.getElementById("freezeDaysLabelEl").textContent = t("freezeDaysLabel");
+    document.getElementById("freezeSubmitBtn").textContent = t("freezeSubmit");
+    if (lastData) {
+      render(lastData);
     } else {
-      list = list.slice().sort((a, b) => a.full_name.localeCompare(b.full_name, "ru"));
+      document.getElementById("content").textContent = t("loading");
     }
+  }
 
-    if (!allClients.length) {
-      view.innerHTML = '<div class="empty">Клиентов пока нет.<br>Попросите их написать боту /start.</div>';
+  async function load() {
+    const initData = (tg && tg.initData) || "";
+    try {
+      const res = await fetch("/api/me?initData=" + encodeURIComponent(initData));
+      const data = await res.json();
+      lastData = data;
+      render(data);
+    } catch (e) {
+      document.getElementById("content").innerHTML =
+        `<div class="empty">${t("loadError")}</div>`;
+    }
+  }
+
+  function render(data) {
+    const content = document.getElementById("content");
+    const ann = document.getElementById("announcement");
+
+    if (data.error === "auth_failed") {
+      content.innerHTML = `<div class="empty">${t("openFromBot")}</div>`;
       return;
     }
-    if (!list.length) {
-      view.innerHTML = '<div class="empty">Никого не найдено по этому запросу.</div>';
+
+    if (data.announcement) {
+      ann.textContent = data.announcement;
+      ann.style.display = "block";
+    }
+
+    if (!data.registered) {
+      renderRegistrationForm();
       return;
     }
 
-    view.innerHTML = list.map(c => {
-      let badge = '<span class="status-badge status-none">Нет абонемента</span>';
-      let subInfo = "";
-      if (c.status === "active") {
-        badge = `<span class="status-badge status-active">До ${c.sub_end_date}</span>`;
-      } else if (c.status === "overdue") {
-        badge = `<span class="status-badge status-overdue">Просрочен: ${c.sub_end_date}</span>`;
+    let subHtml;
+    if (data.subscription) {
+      const s = data.subscription;
+      let visitsHtml = "";
+      if (s.visits_total !== null && s.visits_total !== undefined) {
+        visitsHtml = `
+          <div class="label">${t("visitsLeft")}</div>
+          <div class="value">${s.visits_left} ${t("of")} ${s.visits_total}</div>
+        `;
       }
-      const groupLabel = c.group_type === 'kids' ? 'Kids' : 'Adult';
-      const birthLabel = c.birth_date ? ` · д.р. ${c.birth_date.split('-').reverse().join('.')}` : '';
-      if (c.sub_title) {
-        subInfo = `<div class="client-sub">${c.sub_title} · ${groupLabel}${birthLabel}</div>`;
-      } else {
-        subInfo = `<div class="client-sub">${groupLabel}${birthLabel}</div>`;
-      }
-      const safeName = c.full_name.replace(/'/g, "\\'");
-      return `
-        <div class="card">
-          <div class="client-name">${c.full_name}</div>
-          ${subInfo}
-          <div>${badge}</div>
-          <button class="primary" onclick="openModal(${c.id}, '${safeName}')">Отметить оплату</button>
-          <div class="row-buttons">
-            <button class="small-secondary" onclick="openEditModal(${c.id}, '${safeName}')">✏️ Изменить имя</button>
-            <button class="small-danger" onclick="deleteClient(${c.id}, '${safeName}')">🗑 Удалить</button>
+      subHtml = `
+        <div class="label">${t("subscription")}</div>
+        <div class="value">${s.title}</div>
+        <div class="label">${t("validUntil")}</div>
+        <div class="value">${s.end_date}</div>
+        ${visitsHtml}
+      `;
+    } else {
+      subHtml = `<div class="label">${t("subscription")}</div>
+        <div class="status-badge status-none">${t("noSubscription")}</div>`;
+    }
+
+    const groupTag = data.group_type === 'kids'
+      ? `<span class="group-tag">🧒 Kids</span>`
+      : `<span class="group-tag">👤 Adult</span>`;
+
+    content.innerHTML = `
+      <div class="card id-card">
+        <div class="name">${data.full_name}</div>
+        ${groupTag}
+        ${subHtml}
+        ${data.subscription ? `<button class="secondary" onclick="openFreezeModal()">${t("freezeBtn")}</button>` : ''}
+      </div>
+    `;
+  }
+
+  let selectedGroup = null;
+
+  function renderRegistrationForm() {
+    const content = document.getElementById("content");
+    content.innerHTML = `
+      <div class="card">
+        <div class="name" style="margin-bottom:14px;">${t("registration")}</div>
+        <div class="label">${t("chooseGroup")}</div>
+        <div class="group-choice">
+          <div class="group-btn" id="grpAdult" onclick="pickGroup('adult')">
+            <span class="emoji">👤</span>Adult
+          </div>
+          <div class="group-btn" id="grpKids" onclick="pickGroup('kids')">
+            <span class="emoji">🧒</span>Kids
           </div>
         </div>
-      `;
-    }).join("");
-  }
-
-  function openModal(clientId, name) {
-    currentClientId = clientId;
-    document.getElementById("modalClientName").textContent = "Оплата: " + name;
-    document.getElementById("mDate").value = new Date().toISOString().slice(0, 10);
-    document.getElementById("modalBg").style.display = "flex";
-  }
-  document.getElementById("modalBg").addEventListener("click", (e) => {
-    if (e.target.id === "modalBg") document.getElementById("modalBg").style.display = "none";
-  });
-
-  function openEditModal(clientId, name) {
-    currentClientId = clientId;
-    document.getElementById("eName").value = name;
-    document.getElementById("editModalBg").style.display = "flex";
-  }
-  document.getElementById("editModalBg").addEventListener("click", (e) => {
-    if (e.target.id === "editModalBg") document.getElementById("editModalBg").style.display = "none";
-  });
-
-  async function submitEdit() {
-    const full_name = document.getElementById("eName").value;
-    const res = await fetch("/api/admin/edit_client", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, client_id: currentClientId, full_name }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      document.getElementById("editModalBg").style.display = "none";
-      loadClients();
-    } else {
-      alert("Ошибка: " + (data.error || "неизвестная"));
-    }
-  }
-
-  async function deleteClient(clientId, name) {
-    if (!confirm(`Удалить ${name} из базы? Это действие необратимо.`)) return;
-    const res = await fetch("/api/admin/delete_client", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, client_id: clientId }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      loadClients();
-    } else {
-      alert("Ошибка: " + (data.error || "неизвестная"));
-    }
-  }
-
-  async function submitPayment() {
-    const body = {
-      initData,
-      client_id: currentClientId,
-      title: document.getElementById("mTitle").value || "Абонемент",
-      payment_date: document.getElementById("mDate").value,
-      months: document.getElementById("mMonths").value || 1,
-      visits: document.getElementById("mVisits").value,
-    };
-    const res = await fetch("/api/admin/mark_payment", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      document.getElementById("modalBg").style.display = "none";
-      tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
-      loadClients();
-    } else {
-      alert("Ошибка: " + (data.error || "неизвестная"));
-    }
-  }
-
-  async function loadFreezeRequests() {
-    const res = await fetch("/api/admin/freeze_requests?initData=" + encodeURIComponent(initData));
-    const data = await res.json();
-    const view = document.getElementById("freezeList");
-    const badge = document.getElementById("freezeBadge");
-
-    if (data.error) {
-      view.innerHTML = '<div class="empty">Нет доступа.</div>';
-      return;
-    }
-    if (!data.requests.length) {
-      view.innerHTML = '<div class="empty">Нет активных заявок на заморозку.</div>';
-      badge.innerHTML = "";
-      return;
-    }
-    badge.innerHTML = `<span class="badge-count">${data.requests.length}</span>`;
-    view.innerHTML = data.requests.map(r => `
-      <div class="card">
-        <div class="client-name">${r.full_name}</div>
-        <div class="client-sub">Просит заморозку на ${r.days_requested} дн. · заявка от ${r.created_at}</div>
-        <div class="row-buttons">
-          <button class="primary" style="background:#34c759;" onclick="decideFreeze(${r.id}, true)">✅ Одобрить</button>
-          <button class="small-danger" onclick="decideFreeze(${r.id}, false)">❌ Отклонить</button>
-        </div>
+        <div class="label" id="nameLabel">${t("nameLabel")}</div>
+        <input id="regName" placeholder="${t("namePlaceholder")}">
+        <div class="label">${t("birthDate")}</div>
+        <input id="regBirth" type="date">
+        <button class="primary-full" onclick="submitRegistration()">${t("registerBtn")}</button>
       </div>
-    `).join("");
+    `;
   }
 
-  async function decideFreeze(requestId, approve) {
-    const res = await fetch("/api/admin/freeze_decision", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, request_id: requestId, approve }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
-      loadFreezeRequests();
-    } else {
-      alert("Ошибка: " + (data.error || "неизвестная"));
+  function pickGroup(group) {
+    selectedGroup = group;
+    document.getElementById("grpAdult").classList.toggle("selected", group === "adult");
+    document.getElementById("grpKids").classList.toggle("selected", group === "kids");
+    document.getElementById("nameLabel").textContent =
+      group === "kids" ? t("nameLabelKids") : t("nameLabel");
+  }
+
+  async function submitRegistration() {
+    if (!selectedGroup) {
+      alert(t("chooseGroupAlert"));
+      return;
+    }
+    const full_name = document.getElementById("regName").value.trim();
+    const birth_date = document.getElementById("regBirth").value;
+    if (full_name.length < 2) {
+      alert(t("enterNameAlert"));
+      return;
+    }
+    const initData = (tg && tg.initData) || "";
+    try {
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData, full_name, group_type: selectedGroup, birth_date }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+        load();
+      } else {
+        alert(t("registerFail"));
+      }
+    } catch (e) {
+      alert(t("networkError"));
     }
   }
 
-  async function loadAnnouncement() {
-    const res = await fetch("/api/admin/announcement?initData=" + encodeURIComponent(initData));
-    const data = await res.json();
-    document.getElementById("annText").value = data.text || "";
+  function openFreezeModal() {
+    document.getElementById("freezeModalBg").style.display = "flex";
   }
+  document.getElementById("freezeModalBg").addEventListener("click", (e) => {
+    if (e.target.id === "freezeModalBg") document.getElementById("freezeModalBg").style.display = "none";
+  });
 
-  async function saveAnnouncement() {
-    const text = document.getElementById("annText").value;
-    const res = await fetch("/api/admin/announcement", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, text }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
-      alert("Сохранено");
+  async function submitFreeze() {
+    const days = document.getElementById("freezeDays").value;
+    const initData = (tg && tg.initData) || "";
+    try {
+      const res = await fetch("/api/freeze_request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData, days }),
+      });
+      const data = await res.json();
+      document.getElementById("freezeModalBg").style.display = "none";
+      if (data.ok) {
+        tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+        alert(t("freezeSent"));
+      } else {
+        alert(t("freezeFail"));
+      }
+    } catch (e) {
+      alert(t("networkError"));
     }
   }
 
-  loadClients();
-  loadFreezeRequests();
+  setLang(lang);
+  load();
 </script>
 
 </body>
