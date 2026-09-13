@@ -81,8 +81,35 @@
     background: currentColor;
   }
   .status-active { background: rgba(245,243,238,0.1); color: var(--bone); }
+  .status-expiring { background: rgba(201,162,39,0.18); color: #C9A227; }
   .status-overdue { background: rgba(208,31,31,0.18); color: var(--red-bright); }
   .status-none { background: rgba(140,140,134,0.18); color: var(--ash); }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .card-header-text { flex: 1; }
+  .expand-arrow {
+    color: var(--ash);
+    font-size: 13px;
+    padding: 4px 8px;
+    transition: transform 0.15s;
+  }
+  .expand-arrow.open { transform: rotate(180deg); }
+  .card-details {
+    display: none;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--paper-line);
+  }
+  .card-details.open { display: block; }
+  .note-label {
+    color: var(--ash);
+    font-size: 12px;
+    margin-top: 14px;
+    letter-spacing: 0.02em;
+  }
   button.primary {
     width: 100%;
     padding: 12px;
@@ -205,6 +232,7 @@
 <div class="tabs">
   <div class="tab active" id="tabClients" onclick="showTab('clients')">Клиенты</div>
   <div class="tab" id="tabFreeze" onclick="showTab('freeze')">Заморозки<span id="freezeBadge"></span></div>
+  <div class="tab" id="tabActivate" onclick="showTab('activate')">Активация<span id="activateBadge"></span></div>
   <div class="tab" id="tabAnn" onclick="showTab('announcement')">Объявление</div>
 </div>
 
@@ -214,7 +242,13 @@
     <div class="subtab" id="subAdult" onclick="setGroup('adult')">Adult</div>
     <div class="subtab" id="subKids" onclick="setGroup('kids')">Kids</div>
   </div>
-  <input id="searchInput" placeholder="🔍 Поиск по имени или фамилии" oninput="renderClients()" style="margin-bottom:10px;">
+  <div class="subtabs">
+    <div class="subtab active" id="bucketAll" onclick="setBucket(null)">Все сроки</div>
+    <div class="subtab" id="bucketActive" onclick="setBucket('active')">Активные</div>
+    <div class="subtab" id="bucketExpiring" onclick="setBucket('expiring')">Истекают</div>
+    <div class="subtab" id="bucketOverdue" onclick="setBucket('overdue')">Истекли</div>
+  </div>
+  <input id="searchInput" placeholder="Поиск по имени или фамилии" oninput="renderClients()" style="margin-bottom:10px;">
   <div class="subtabs">
     <div class="subtab active" id="sortAlpha" onclick="setSort('alpha')">А-Я</div>
     <div class="subtab" id="sortBirth" onclick="setSort('birth')">По дате рождения</div>
@@ -224,6 +258,10 @@
 
 <div id="freezeView" style="display:none;">
   <div id="freezeList"><div class="empty">Загрузка…</div></div>
+</div>
+
+<div id="activateView" style="display:none;">
+  <div id="activateList"><div class="empty">Загрузка…</div></div>
 </div>
 
 <div id="announcementView" style="display:none;">
@@ -255,6 +293,14 @@
   </div>
 </div>
 
+<div class="modal-bg" id="activateEditModalBg">
+  <div class="modal">
+    <h2>Изменить дату начала</h2>
+    <input id="activateEditDate" type="date">
+    <button class="primary" onclick="submitActivationDateEdit()">Сохранить дату</button>
+  </div>
+</div>
+
 <script>
   const tg = window.Telegram && window.Telegram.WebApp;
   if (tg) {
@@ -264,18 +310,32 @@
 
   let currentClientId = null;
   let currentGroup = null;
+  let currentBucket = null;
   let currentSort = "alpha";
   let allClients = [];
+  let expandedIds = new Set();
 
   function showTab(tab) {
     document.getElementById("tabClients").classList.toggle("active", tab === "clients");
     document.getElementById("tabFreeze").classList.toggle("active", tab === "freeze");
+    document.getElementById("tabActivate").classList.toggle("active", tab === "activate");
     document.getElementById("tabAnn").classList.toggle("active", tab === "announcement");
     document.getElementById("clientsView").style.display = tab === "clients" ? "block" : "none";
     document.getElementById("freezeView").style.display = tab === "freeze" ? "block" : "none";
+    document.getElementById("activateView").style.display = tab === "activate" ? "block" : "none";
     document.getElementById("announcementView").style.display = tab === "announcement" ? "block" : "none";
     if (tab === "announcement") loadAnnouncement();
     if (tab === "freeze") loadFreezeRequests();
+    if (tab === "activate") loadActivationRequests();
+  }
+
+  function setBucket(bucket) {
+    currentBucket = bucket;
+    document.getElementById("bucketAll").classList.toggle("active", bucket === null);
+    document.getElementById("bucketActive").classList.toggle("active", bucket === "active");
+    document.getElementById("bucketExpiring").classList.toggle("active", bucket === "expiring");
+    document.getElementById("bucketOverdue").classList.toggle("active", bucket === "overdue");
+    renderClients();
   }
 
   function setGroup(group) {
@@ -312,6 +372,9 @@
     const searchTerm = (document.getElementById("searchInput").value || "").toLowerCase().trim();
 
     let list = allClients.filter(c => c.full_name.toLowerCase().includes(searchTerm));
+    if (currentBucket) {
+      list = list.filter(c => c.status === currentBucket);
+    }
 
     if (currentSort === "birth") {
       list = list.slice().sort((a, b) => {
@@ -333,34 +396,68 @@
     }
 
     view.innerHTML = list.map(c => {
-      let badge = '<span class="status-badge status-none">Нет абонемента</span>';
-      let subInfo = "";
-      if (c.status === "active") {
-        badge = `<span class="status-badge status-active">До ${c.sub_end_date}</span>`;
-      } else if (c.status === "overdue") {
-        badge = `<span class="status-badge status-overdue">Просрочен: ${c.sub_end_date}</span>`;
-      }
+      let badgeText = "Нет абонемента";
+      let badgeClass = "status-none";
+      if (c.status === "active") { badgeText = "До " + c.sub_end_date; badgeClass = "status-active"; }
+      else if (c.status === "expiring") { badgeText = "Истекает " + c.sub_end_date; badgeClass = "status-expiring"; }
+      else if (c.status === "overdue") { badgeText = "Просрочен: " + c.sub_end_date; badgeClass = "status-overdue"; }
+
       const groupLabel = c.group_type === 'kids' ? 'Kids' : 'Adult';
-      const birthLabel = c.birth_date ? ` · д.р. ${c.birth_date.split('-').reverse().join('.')}` : '';
-      if (c.sub_title) {
-        subInfo = `<div class="client-sub">${c.sub_title} · ${groupLabel}${birthLabel}</div>`;
-      } else {
-        subInfo = `<div class="client-sub">${groupLabel}${birthLabel}</div>`;
-      }
+      const birthLabel = c.birth_date ? c.birth_date.split('-').reverse().join('.') : '—';
       const safeName = c.full_name.replace(/'/g, "\\'");
+      const isOpen = expandedIds.has(c.id);
+      const noteVal = (c.note || "").replace(/</g, "&lt;");
+
       return `
         <div class="card">
-          <div class="client-name">${c.full_name}</div>
-          ${subInfo}
-          <div>${badge}</div>
-          <button class="primary" onclick="openModal(${c.id}, '${safeName}')">Отметить оплату</button>
-          <div class="row-buttons">
-            <button class="small-secondary" onclick="openEditModal(${c.id}, '${safeName}')">✏️ Изменить имя</button>
-            <button class="small-danger" onclick="deleteClient(${c.id}, '${safeName}')">🗑 Удалить</button>
+          <div class="card-header" onclick="toggleExpand(${c.id})">
+            <div class="card-header-text">
+              <div class="client-name">${c.full_name}</div>
+              <div class="client-sub">${c.sub_end_date ? c.sub_end_date : "нет абонемента"}</div>
+            </div>
+            <div class="expand-arrow ${isOpen ? 'open' : ''}">v</div>
+          </div>
+          <div class="card-details ${isOpen ? 'open' : ''}" id="details-${c.id}">
+            <div>${groupLabel} · д.р. ${birthLabel}</div>
+            <div style="margin-top:6px;"><span class="status-badge ${badgeClass}">${badgeText}</span></div>
+            <button class="primary" onclick="openModal(${c.id}, '${safeName}')">Отметить оплату</button>
+            <div class="row-buttons">
+              <button class="small-secondary" onclick="openEditModal(${c.id}, '${safeName}')">Изменить имя</button>
+              <button class="small-danger" onclick="deleteClient(${c.id}, '${safeName}')">Удалить</button>
+            </div>
+            <div class="note-label">Заметка (видна только вам)</div>
+            <textarea id="note-${c.id}" rows="2" placeholder="Например: платит наличными">${noteVal}</textarea>
+            <button class="small-secondary" style="width:100%;margin-top:8px;" onclick="saveNote(${c.id})">Сохранить заметку</button>
           </div>
         </div>
       `;
     }).join("");
+  }
+
+  function toggleExpand(clientId) {
+    if (expandedIds.has(clientId)) {
+      expandedIds.delete(clientId);
+    } else {
+      expandedIds.add(clientId);
+    }
+    renderClients();
+  }
+
+  async function saveNote(clientId) {
+    const note = document.getElementById("note-" + clientId).value;
+    const res = await fetch("/api/admin/set_note", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, client_id: clientId, note }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+      const c = allClients.find(x => x.id === clientId);
+      if (c) c.note = note;
+    } else {
+      alert("Ошибка: " + (data.error || "неизвестная"));
+    }
   }
 
   function openModal(clientId, name) {
@@ -458,8 +555,8 @@
         <div class="client-name">${r.full_name}</div>
         <div class="client-sub">Просит заморозку на ${r.days_requested} дн. · заявка от ${r.created_at}</div>
         <div class="row-buttons">
-          <button class="primary" style="background:var(--bone);color:var(--bone);" onclick="decideFreeze(${r.id}, true)">✅ Одобрить</button>
-          <button class="small-danger" onclick="decideFreeze(${r.id}, false)">❌ Отклонить</button>
+          <button class="primary" style="background:var(--bone);color:var(--ink);" onclick="decideFreeze(${r.id}, true)">Одобрить</button>
+          <button class="small-danger" onclick="decideFreeze(${r.id}, false)">Отклонить</button>
         </div>
       </div>
     `).join("");
@@ -475,6 +572,78 @@
     if (data.ok) {
       tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
       loadFreezeRequests();
+    } else {
+      alert("Ошибка: " + (data.error || "неизвестная"));
+    }
+  }
+
+  let currentActivationId = null;
+
+  async function loadActivationRequests() {
+    const res = await fetch("/api/admin/activation_requests?initData=" + encodeURIComponent(initData));
+    const data = await res.json();
+    const view = document.getElementById("activateList");
+    const badge = document.getElementById("activateBadge");
+
+    if (data.error) {
+      view.innerHTML = '<div class="empty">Нет доступа.</div>';
+      return;
+    }
+    if (!data.requests.length) {
+      view.innerHTML = '<div class="empty">Нет заявок на активацию.</div>';
+      badge.innerHTML = "";
+      return;
+    }
+    badge.innerHTML = `<span class="badge-count">${data.requests.length}</span>`;
+    view.innerHTML = data.requests.map(r => `
+      <div class="card">
+        <div class="client-name">${r.full_name}</div>
+        <div class="client-sub">Просит начать с ${r.requested_date_display} · заявка от ${r.created_at}</div>
+        <div class="row-buttons">
+          <button class="primary" style="background:var(--bone);color:var(--ink);" onclick="decideActivation(${r.id}, true)">Одобрить</button>
+          <button class="small-danger" onclick="decideActivation(${r.id}, false)">Отклонить</button>
+        </div>
+        <button class="small-secondary" style="width:100%;margin-top:8px;" onclick="openActivationEditModal(${r.id}, '${r.requested_date}')">Изменить дату</button>
+      </div>
+    `).join("");
+  }
+
+  function openActivationEditModal(requestId, currentDate) {
+    currentActivationId = requestId;
+    document.getElementById("activateEditDate").value = currentDate;
+    document.getElementById("activateEditModalBg").style.display = "flex";
+  }
+  document.getElementById("activateEditModalBg").addEventListener("click", (e) => {
+    if (e.target.id === "activateEditModalBg") document.getElementById("activateEditModalBg").style.display = "none";
+  });
+
+  async function submitActivationDateEdit() {
+    const new_date = document.getElementById("activateEditDate").value;
+    const res = await fetch("/api/admin/activation_edit_date", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, request_id: currentActivationId, new_date }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById("activateEditModalBg").style.display = "none";
+      loadActivationRequests();
+    } else {
+      alert("Ошибка: " + (data.error || "неизвестная"));
+    }
+  }
+
+  async function decideActivation(requestId, approve) {
+    const res = await fetch("/api/admin/activation_decision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, request_id: requestId, approve }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+      loadActivationRequests();
+      loadClients();
     } else {
       alert("Ошибка: " + (data.error || "неизвестная"));
     }
@@ -502,6 +671,7 @@
 
   loadClients();
   loadFreezeRequests();
+  loadActivationRequests();
 </script>
 
 </body>
