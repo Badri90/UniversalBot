@@ -201,7 +201,15 @@
     letter-spacing: 0.02em;
   }
   .group-btn.selected { border-color: var(--red-bright); color: var(--red-bright); }
-  .group-btn .emoji { font-size: 26px; display: block; margin-bottom: 6px; }
+  input[type="date"] {
+    -webkit-appearance: none;
+    appearance: none;
+    text-align: left;
+    line-height: normal;
+  }
+  input[type="date"]::-webkit-date-and-time-value {
+    text-align: left;
+  }
   button.primary-full {
     width: 100%;
     padding: 15px;
@@ -215,6 +223,19 @@
     margin-top: 20px;
   }
   button.primary-full:active { background: #7F1010; }
+  button.outline-full {
+    width: 100%;
+    padding: 14px;
+    border: 1px solid var(--red);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--red-bright);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    margin-top: 12px;
+  }
+  button.outline-full:active { background: rgba(163,21,21,0.1); }
   .lang-switch {
     display: flex;
     justify-content: flex-end;
@@ -232,6 +253,24 @@
     letter-spacing: 0.03em;
   }
   .lang-btn.active { background: var(--red); color: var(--bone); border-color: var(--red); }
+  .footer-links {
+    display: flex;
+    justify-content: center;
+    gap: 22px;
+    margin-top: 30px;
+  }
+  .footer-links a {
+    color: var(--ash);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--paper-line);
+    border-radius: 3px;
+  }
+  .footer-links a:active { border-color: var(--red); color: var(--red-bright); }
+  .footer-links svg { width: 19px; height: 19px; fill: currentColor; }
 </style>
 </head>
 <body>
@@ -250,12 +289,23 @@
 <div id="announcement" class="announcement"></div>
 <div id="content" class="loading">…</div>
 
+<div class="footer-links" id="footerLinks"></div>
+
 <div class="modal-bg" id="freezeModalBg">
   <div class="modal">
     <div class="name" id="freezeModalTitle">Заморозить абонемент</div>
     <div class="label" id="freezeDaysLabelEl">На сколько дней?</div>
     <input id="freezeDays" type="number" min="1" max="90" value="7">
     <button id="freezeSubmitBtn" class="primary-full" onclick="submitFreeze()">Отправить заявку</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="activateModalBg">
+  <div class="modal">
+    <div class="name" id="activateModalTitle">Активировать абонемент</div>
+    <div class="label" id="activateDateLabelEl">Дата начала</div>
+    <input id="activateDate" type="date">
+    <button id="activateSubmitBtn" class="primary-full" onclick="submitActivation()">Отправить заявку</button>
   </div>
 </div>
 
@@ -274,12 +324,13 @@
       validUntil: "Действует до",
       visitsLeft: "Осталось посещений",
       noSubscription: "Нет активного абонемента",
-      freezeBtn: "❄️ Заморозить абонемент",
+      freezeBtn: "Заморозить абонемент",
+      activateBtn: "Активировать абонемент",
       registration: "Регистрация",
       chooseGroup: "Выберите группу",
       nameLabel: "Имя и фамилия",
       nameLabelKids: "Имя и фамилия ребёнка",
-      namePlaceholder: "Например: Иванов Иван",
+      namePlaceholder: "Имя Фамилия",
       birthDate: "Дата рождения",
       registerBtn: "Зарегистрироваться",
       chooseGroupAlert: "Выберите группу: Adult или Kids",
@@ -291,6 +342,11 @@
       freezeSubmit: "Отправить заявку",
       freezeSent: "Заявка отправлена тренеру. Ждите подтверждения.",
       freezeFail: "Не удалось отправить заявку. Попробуйте позже.",
+      activateTitle: "Активировать абонемент",
+      activateDateLabel: "Дата начала",
+      activateSubmit: "Отправить заявку",
+      activateSent: "Заявка отправлена тренеру. Ждите подтверждения.",
+      activateFail: "Не удалось отправить заявку. Попробуйте позже.",
       of: "из",
     },
     en: {
@@ -301,12 +357,13 @@
       validUntil: "Valid until",
       visitsLeft: "Visits left",
       noSubscription: "No active subscription",
-      freezeBtn: "❄️ Freeze subscription",
+      freezeBtn: "Freeze subscription",
+      activateBtn: "Activate subscription",
       registration: "Registration",
       chooseGroup: "Choose a group",
       nameLabel: "First and last name",
       nameLabelKids: "Child's first and last name",
-      namePlaceholder: "e.g. John Smith",
+      namePlaceholder: "First name Last name",
       birthDate: "Date of birth",
       registerBtn: "Register",
       chooseGroupAlert: "Please choose a group: Adult or Kids",
@@ -318,6 +375,11 @@
       freezeSubmit: "Send request",
       freezeSent: "Request sent to your trainer. Awaiting approval.",
       freezeFail: "Couldn't send the request. Please try again later.",
+      activateTitle: "Activate subscription",
+      activateDateLabel: "Start date",
+      activateSubmit: "Send request",
+      activateSent: "Request sent to your trainer. Awaiting approval.",
+      activateFail: "Couldn't send the request. Please try again later.",
       of: "of",
     },
   };
@@ -337,11 +399,38 @@
     document.getElementById("freezeModalTitle").textContent = t("freezeTitle");
     document.getElementById("freezeDaysLabelEl").textContent = t("freezeDaysLabel");
     document.getElementById("freezeSubmitBtn").textContent = t("freezeSubmit");
+    document.getElementById("activateModalTitle").textContent = t("activateTitle");
+    document.getElementById("activateDateLabelEl").textContent = t("activateDateLabel");
+    document.getElementById("activateSubmitBtn").textContent = t("activateSubmit");
     if (lastData) {
       render(lastData);
     } else {
       document.getElementById("content").textContent = t("loading");
     }
+  }
+
+  const INSTAGRAM_URL = "https://www.instagram.com/brazilianjj_batumi?stkn=eGV3eW5meXh0ZTBp&utm_source=qr";
+  const TELEGRAM_KIDS_URL = "https://t.me/+zZSUkSffbrw1YWZi";
+  const TELEGRAM_ADULT_URL = "https://t.me/+d0QsYmSk9JozZDZi";
+
+  function openLink(url) {
+    if (tg && tg.openLink) {
+      tg.openLink(url);
+    } else {
+      window.open(url, "_blank");
+    }
+  }
+
+  function renderFooterLinks(groupType) {
+    const telegramUrl = groupType === "kids" ? TELEGRAM_KIDS_URL : TELEGRAM_ADULT_URL;
+    document.getElementById("footerLinks").innerHTML = `
+      <a onclick="openLink('${INSTAGRAM_URL}')">
+        <svg viewBox="0 0 24 24"><path d="M12 2c2.7 0 3.06.01 4.12.06 1.06.05 1.79.22 2.43.47.66.26 1.21.6 1.76 1.15.55.55.89 1.1 1.15 1.76.25.64.42 1.37.47 2.43.05 1.06.06 1.42.06 4.12s-.01 3.06-.06 4.12c-.05 1.06-.22 1.79-.47 2.43a4.9 4.9 0 0 1-1.15 1.76 4.9 4.9 0 0 1-1.76 1.15c-.64.25-1.37.42-2.43.47-1.06.05-1.42.06-4.12.06s-3.06-.01-4.12-.06c-1.06-.05-1.79-.22-2.43-.47a4.9 4.9 0 0 1-1.76-1.15 4.9 4.9 0 0 1-1.15-1.76c-.25-.64-.42-1.37-.47-2.43C2.01 15.06 2 14.7 2 12s.01-3.06.06-4.12c.05-1.06.22-1.79.47-2.43.26-.66.6-1.21 1.15-1.76A4.9 4.9 0 0 1 5.44 2.53c.64-.25 1.37-.42 2.43-.47C8.94 2.01 9.3 2 12 2zm0 5a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 8.2a3.2 3.2 0 1 1 0-6.4 3.2 3.2 0 0 1 0 6.4zm5.2-8.4a1.17 1.17 0 1 1 0-2.34 1.17 1.17 0 0 1 0 2.34z"/></svg>
+      </a>
+      <a onclick="openLink('${telegramUrl}')">
+        <svg viewBox="0 0 24 24"><path d="M21.8 4.4 3 11.4c-1 .4-1 1.7.1 2l4.6 1.5 1.8 5.6c.2.7 1.1.9 1.6.4l2.6-2.5 4.9 3.6c.7.5 1.7.1 1.9-.7l3.2-15c.2-.9-.7-1.6-1.5-1.3zM9 14.5l8.8-6.9c.3-.2.6.2.3.4L11 14.5l-.3 3.2z"/></svg>
+      </a>
+    `;
   }
 
   async function load() {
@@ -376,6 +465,8 @@
       return;
     }
 
+    renderFooterLinks(data.group_type);
+
     let subHtml;
     if (data.subscription) {
       const s = data.subscription;
@@ -399,15 +490,19 @@
     }
 
     const groupTag = data.group_type === 'kids'
-      ? `<span class="group-tag">🧒 Kids</span>`
-      : `<span class="group-tag">👤 Adult</span>`;
+      ? `<span class="group-tag">Kids</span>`
+      : `<span class="group-tag">Adult</span>`;
+
+    const actionBtn = data.subscription
+      ? `<button class="secondary" onclick="openFreezeModal()">${t("freezeBtn")}</button>`
+      : `<button class="outline-full" onclick="openActivateModal()">${t("activateBtn")}</button>`;
 
     content.innerHTML = `
       <div class="card id-card">
         <div class="name">${data.full_name}</div>
         ${groupTag}
         ${subHtml}
-        ${data.subscription ? `<button class="secondary" onclick="openFreezeModal()">${t("freezeBtn")}</button>` : ''}
+        ${actionBtn}
       </div>
     `;
   }
@@ -421,12 +516,8 @@
         <div class="name" style="margin-bottom:14px;">${t("registration")}</div>
         <div class="label">${t("chooseGroup")}</div>
         <div class="group-choice">
-          <div class="group-btn" id="grpAdult" onclick="pickGroup('adult')">
-            <span class="emoji">👤</span>Adult
-          </div>
-          <div class="group-btn" id="grpKids" onclick="pickGroup('kids')">
-            <span class="emoji">🧒</span>Kids
-          </div>
+          <div class="group-btn" id="grpAdult" onclick="pickGroup('adult')">Adult</div>
+          <div class="group-btn" id="grpKids" onclick="pickGroup('kids')">Kids</div>
         </div>
         <div class="label" id="nameLabel">${t("nameLabel")}</div>
         <input id="regName" placeholder="${t("namePlaceholder")}">
@@ -498,6 +589,36 @@
         alert(t("freezeSent"));
       } else {
         alert(t("freezeFail"));
+      }
+    } catch (e) {
+      alert(t("networkError"));
+    }
+  }
+
+  function openActivateModal() {
+    document.getElementById("activateDate").value = new Date().toISOString().slice(0, 10);
+    document.getElementById("activateModalBg").style.display = "flex";
+  }
+  document.getElementById("activateModalBg").addEventListener("click", (e) => {
+    if (e.target.id === "activateModalBg") document.getElementById("activateModalBg").style.display = "none";
+  });
+
+  async function submitActivation() {
+    const requested_date = document.getElementById("activateDate").value;
+    const initData = (tg && tg.initData) || "";
+    try {
+      const res = await fetch("/api/activate_request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData, requested_date }),
+      });
+      const data = await res.json();
+      document.getElementById("activateModalBg").style.display = "none";
+      if (data.ok) {
+        tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+        alert(t("activateSent"));
+      } else {
+        alert(t("activateFail"));
       }
     } catch (e) {
       alert(t("networkError"));
