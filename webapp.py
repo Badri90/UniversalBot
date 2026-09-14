@@ -24,6 +24,9 @@ import db
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()}
 PORT = int(os.getenv("PORT", "8080"))
+# фиксированная стоимость абонемента (лари)
+DEFAULT_PRICE = float(os.getenv("SUBSCRIPTION_PRICE", "130"))
+CURRENCY = os.getenv("CURRENCY", "GEL")
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -99,7 +102,15 @@ def api_me():
     if not user:
         return jsonify({"error": "auth_failed"}), 401
 
-    client = db.get_client_by_telegram_id(user["id"])
+    # админ может посмотреть кабинет конкретного клиента глазами клиента
+    view_as = request.args.get("as")
+    viewing_as_admin = False
+    if view_as and require_admin(user):
+        client = db.get_client_by_id(int(view_as))
+        viewing_as_admin = True
+    else:
+        client = db.get_client_by_telegram_id(user["id"])
+
     if not client:
         return jsonify({"registered": False})
 
@@ -118,10 +129,6 @@ def api_me():
     month_start = today.replace(day=1).strftime("%Y-%m-%d")
     month_end = today.strftime("%Y-%m-%d")
     visits_this_month = db.count_attendance(client["id"], month_start, month_end)
-    recent_visits = [
-        "-".join(reversed(d.split("-")))
-        for d in db.client_attendance_dates(client["id"], month_start, month_end)[:8]
-    ]
 
     schedule = [{
         "day_of_week": r["day_of_week"],
@@ -141,9 +148,48 @@ def api_me():
         "belt_updated": fmt_date(client["belt_updated"]) if client["belt_updated"] else None,
         "subscription": subscription,
         "visits_this_month": visits_this_month,
-        "recent_visits": recent_visits,
         "schedule": schedule,
         "announcement": db.get_announcement(),
+        "viewing_as_admin": viewing_as_admin,
+    })
+
+
+@flask_app.route("/api/my_attendance")
+def api_my_attendance():
+    """Календарь посещений клиента за выбранный месяц."""
+    user = validate_init_data(request.args.get("initData", ""))
+    if not user:
+        return jsonify({"error": "auth_failed"}), 401
+
+    view_as = request.args.get("as")
+    if view_as and require_admin(user):
+        client = db.get_client_by_id(int(view_as))
+    else:
+        client = db.get_client_by_telegram_id(user["id"])
+    if not client:
+        return jsonify({"error": "not_registered"}), 404
+
+    month = request.args.get("month")
+    now = datetime.now()
+    if month:
+        try:
+            base = datetime.strptime(month + "-01", "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"error": "bad_month"}), 400
+    else:
+        base = now.replace(day=1)
+
+    from dateutil.relativedelta import relativedelta
+    start = base.strftime("%Y-%m-%d")
+    end = (base + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    dates = db.client_attendance_dates(client["id"], start, end)
+    return jsonify({
+        "month_key": base.strftime("%Y-%m"),
+        "year": base.year,
+        "month": base.month,
+        "days": [d[8:10].lstrip("0") for d in dates],
+        "total": len(dates),
     })
 
 
@@ -283,9 +329,9 @@ def api_admin_mark_payment():
     visits = int(visits) if visits not in (None, "") else None
     amount = body.get("amount")
     try:
-        amount = float(amount) if amount not in (None, "") else None
+        amount = float(amount) if amount not in (None, "") else DEFAULT_PRICE
     except (TypeError, ValueError):
-        amount = None
+        amount = DEFAULT_PRICE
 
     client = db.get_client_by_id(client_id)
     if not client:
@@ -297,6 +343,7 @@ def api_admin_mark_payment():
         return jsonify({"error": "bad_date"}), 400
 
     db.add_subscription(client["id"], title, payment_date, months, visits, amount)
+    db.resolve_pending_activation_requests(client["id"])
 
     from dateutil.relativedelta import relativedelta
     next_due = payment_date + relativedelta(months=months)
@@ -494,9 +541,10 @@ def api_admin_activation_decision():
     request_id = body.get("request_id")
     approve = bool(body.get("approve"))
 
-    req = db.decide_activation_request(request_id, approve)
-    if not req:
+    result = db.decide_activation_request(request_id, approve, 1, DEFAULT_PRICE)
+    if not result:
         return jsonify({"error": "not_found_or_decided"}), 404
+    req = result["request"]
 
     client = db.get_client_by_id(req["client_id"])
     if client:

@@ -346,12 +346,34 @@ def update_activation_request_date(request_id: int, new_date: str):
         )
 
 
-def decide_activation_request(request_id: int, approve: bool, months: int = 1):
-    """Если одобрено — создаёт активный абонемент клиента, начиная с requested_date."""
+def resolve_pending_activation_requests(client_id: int, status: str = "approved"):
+    """
+    Закрывает необработанные заявки клиента. Нужно, когда тренер отметил оплату
+    вручную в карточке — иначе заявка осталась бы висеть во вкладке «Активация»
+    и её повторное одобрение создало бы второй абонемент.
+    """
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE activation_requests SET status = ?, decided_at = ?
+            WHERE client_id = ? AND status = 'pending'
+            """,
+            (status, datetime.now().isoformat(), client_id),
+        )
+
+
+def decide_activation_request(request_id: int, approve: bool, months: int = 1,
+                               amount: float = None):
+    """
+    Если одобрено — создаёт активный абонемент клиента, начиная с requested_date.
+    Если у клиента уже есть действующий абонемент (например, тренер отметил
+    оплату вручную), второй не создаётся — заявка просто закрывается.
+    """
     req = get_activation_request(request_id)
     if not req or req["status"] != "pending":
         return None
 
+    created = False
     with get_conn() as conn:
         new_status = "approved" if approve else "rejected"
         conn.execute(
@@ -359,17 +381,29 @@ def decide_activation_request(request_id: int, approve: bool, months: int = 1):
             (new_status, datetime.now().isoformat(), request_id),
         )
         if approve:
-            start = datetime.fromisoformat(req["requested_date"])
-            end = start + relativedelta(months=months)
-            conn.execute(
+            existing = conn.execute(
                 """
-                INSERT INTO subscriptions
-                    (client_id, title, start_date, end_date, visits_total, visits_left, status)
-                VALUES (?, ?, ?, ?, NULL, NULL, 'active')
+                SELECT 1 FROM subscriptions
+                WHERE client_id = ? AND status = 'active' AND end_date >= ?
+                LIMIT 1
                 """,
-                (req["client_id"], "Абонемент", start.isoformat(), end.isoformat()),
-            )
-    return req
+                (req["client_id"], datetime.now().isoformat()),
+            ).fetchone()
+            if not existing:
+                start = datetime.fromisoformat(req["requested_date"])
+                end = start + relativedelta(months=months)
+                conn.execute(
+                    """
+                    INSERT INTO subscriptions
+                        (client_id, title, start_date, end_date, visits_total,
+                         visits_left, status, amount)
+                    VALUES (?, ?, ?, ?, NULL, NULL, 'active', ?)
+                    """,
+                    (req["client_id"], "Абонемент", start.isoformat(), end.isoformat(), amount),
+                )
+                created = True
+
+    return {"request": req, "created": created}
 
 
 # ---------- Расписание ----------
