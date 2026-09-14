@@ -135,6 +135,105 @@
     font-family: inherit;
   }
   input:focus, textarea:focus { outline: none; border-color: var(--red); }
+  select {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 3px;
+    border: 1px solid var(--paper-line);
+    background: var(--ink);
+    color: var(--bone);
+    font-size: 15px;
+    margin-top: 6px;
+    font-family: inherit;
+  }
+  .attend-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--paper);
+    border: 1px solid var(--paper-line);
+    border-radius: 4px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+  }
+  .attend-row.present { border-color: var(--red); }
+  .attend-check {
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--paper-line);
+    border-radius: 3px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: transparent;
+  }
+  .attend-row.present .attend-check {
+    background: var(--red);
+    border-color: var(--red);
+    color: var(--bone);
+  }
+  .attend-name { flex: 1; font-size: 15px; font-weight: 600; }
+  .attend-count { color: var(--ash); font-size: 12px; }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .stat-box {
+    background: var(--paper);
+    border: 1px solid var(--paper-line);
+    border-radius: 4px;
+    padding: 14px;
+  }
+  .stat-box .n {
+    font-family: 'Oswald', sans-serif;
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+  .stat-box .k {
+    color: var(--ash);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  .stat-box.accent { border-color: var(--red); }
+  .stat-box.accent .n { color: var(--red-bright); }
+  .sched-item {
+    background: var(--paper);
+    border: 1px solid var(--paper-line);
+    border-left: 3px solid var(--red);
+    border-radius: 4px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+  }
+  .sched-item-time {
+    font-family: 'Oswald', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .month-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .month-nav button {
+    padding: 8px 14px;
+    border: 1px solid var(--paper-line);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--bone);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .month-nav .m {
+    font-family: 'Oswald', sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+  }
   .label { color: var(--ash); font-size: 13px; margin-top: 12px; }
   .modal-bg {
     display: none;
@@ -231,9 +330,34 @@
 
 <div class="tabs">
   <div class="tab active" id="tabClients" onclick="showTab('clients')">Клиенты</div>
+  <div class="tab" id="tabAttend" onclick="showTab('attend')">Посещения</div>
+  <div class="tab" id="tabSchedule" onclick="showTab('schedule')">Расписание</div>
+  <div class="tab" id="tabStats" onclick="showTab('stats')">Статистика</div>
   <div class="tab" id="tabFreeze" onclick="showTab('freeze')">Заморозки<span id="freezeBadge"></span></div>
   <div class="tab" id="tabActivate" onclick="showTab('activate')">Активация<span id="activateBadge"></span></div>
   <div class="tab" id="tabAnn" onclick="showTab('announcement')">Объявление</div>
+</div>
+
+<div id="attendView" style="display:none;">
+  <div class="label">Дата занятия</div>
+  <input id="attendDate" type="date" onchange="loadAttendance()">
+  <div class="subtabs" style="margin-top:12px;">
+    <div class="subtab active" id="attGroupAll" onclick="setAttendGroup(null)">Все</div>
+    <div class="subtab" id="attGroupAdult" onclick="setAttendGroup('adult')">Adult</div>
+    <div class="subtab" id="attGroupKids" onclick="setAttendGroup('kids')">Kids</div>
+  </div>
+  <input id="attendSearch" placeholder="Поиск по имени" oninput="renderAttendance()" style="margin-bottom:10px;">
+  <div id="attendSummary" class="client-sub" style="margin-bottom:10px;"></div>
+  <div id="attendList"><div class="empty">Загрузка…</div></div>
+</div>
+
+<div id="scheduleView" style="display:none;">
+  <button class="primary" onclick="openScheduleModal()">Добавить занятие</button>
+  <div id="scheduleList" style="margin-top:14px;"><div class="empty">Загрузка…</div></div>
+</div>
+
+<div id="statsView" style="display:none;">
+  <div id="statsBody"><div class="empty">Загрузка…</div></div>
 </div>
 
 <div id="clientsView">
@@ -281,7 +405,55 @@
     <input id="mMonths" type="number" value="1" min="1">
     <div class="label">Посещений (необязательно)</div>
     <input id="mVisits" type="number" placeholder="оставить пустым если безлимит">
+    <div class="label">Сумма оплаты (для статистики)</div>
+    <input id="mAmount" type="number" step="any" placeholder="например 150">
     <button class="primary" onclick="submitPayment()">Сохранить оплату</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="scheduleModalBg">
+  <div class="modal">
+    <h2 id="scheduleModalTitle">Занятие</h2>
+    <div class="label">День недели</div>
+    <select id="sDay">
+      <option value="0">Понедельник</option>
+      <option value="1">Вторник</option>
+      <option value="2">Среда</option>
+      <option value="3">Четверг</option>
+      <option value="4">Пятница</option>
+      <option value="5">Суббота</option>
+      <option value="6">Воскресенье</option>
+    </select>
+    <div class="label">Начало</div>
+    <input id="sStart" type="time" value="18:00">
+    <div class="label">Окончание (необязательно)</div>
+    <input id="sEnd" type="time">
+    <div class="label">Название</div>
+    <input id="sTitle" placeholder="Например: Вечерняя группа">
+    <div class="label">Группа</div>
+    <select id="sGroup">
+      <option value="all">Все</option>
+      <option value="adult">Adult</option>
+      <option value="kids">Kids</option>
+    </select>
+    <button class="primary" onclick="submitSchedule()">Сохранить</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="beltModalBg">
+  <div class="modal">
+    <h2 id="beltModalTitle">Пояс</h2>
+    <div class="label">Пояс</div>
+    <select id="bBelt"></select>
+    <div class="label">Полоски</div>
+    <select id="bStripes">
+      <option value="0">0</option>
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
+    </select>
+    <button class="primary" onclick="submitBelt()">Сохранить</button>
   </div>
 </div>
 
@@ -315,18 +487,38 @@
   let allClients = [];
   let expandedIds = new Set();
 
+  // Имя и заметку вводит человек — вставлять их в HTML напрямую нельзя,
+  // иначе введённый в имя HTML-код выполнится прямо в этой панели.
+  function esc(str) {
+    return String(str == null ? "" : str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  const TABS = ["clients", "attend", "schedule", "stats", "freeze", "activate", "announcement"];
+  const TAB_BTN = {
+    clients: "tabClients", attend: "tabAttend", schedule: "tabSchedule", stats: "tabStats",
+    freeze: "tabFreeze", activate: "tabActivate", announcement: "tabAnn",
+  };
+  const TAB_VIEW = {
+    clients: "clientsView", attend: "attendView", schedule: "scheduleView", stats: "statsView",
+    freeze: "freezeView", activate: "activateView", announcement: "announcementView",
+  };
+
   function showTab(tab) {
-    document.getElementById("tabClients").classList.toggle("active", tab === "clients");
-    document.getElementById("tabFreeze").classList.toggle("active", tab === "freeze");
-    document.getElementById("tabActivate").classList.toggle("active", tab === "activate");
-    document.getElementById("tabAnn").classList.toggle("active", tab === "announcement");
-    document.getElementById("clientsView").style.display = tab === "clients" ? "block" : "none";
-    document.getElementById("freezeView").style.display = tab === "freeze" ? "block" : "none";
-    document.getElementById("activateView").style.display = tab === "activate" ? "block" : "none";
-    document.getElementById("announcementView").style.display = tab === "announcement" ? "block" : "none";
+    TABS.forEach(name => {
+      document.getElementById(TAB_BTN[name]).classList.toggle("active", name === tab);
+      document.getElementById(TAB_VIEW[name]).style.display = name === tab ? "block" : "none";
+    });
     if (tab === "announcement") loadAnnouncement();
     if (tab === "freeze") loadFreezeRequests();
     if (tab === "activate") loadActivationRequests();
+    if (tab === "attend") loadAttendance();
+    if (tab === "schedule") loadSchedule();
+    if (tab === "stats") loadStats();
   }
 
   function setBucket(bucket) {
@@ -404,29 +596,36 @@
 
       const groupLabel = c.group_type === 'kids' ? 'Kids' : 'Adult';
       const birthLabel = c.birth_date ? c.birth_date.split('-').reverse().join('.') : '—';
-      const safeName = c.full_name.replace(/'/g, "\\'");
+      const BELT_RU_ROW = { white:"белый", grey:"серый", yellow:"жёлтый", orange:"оранжевый",
+                            green:"зелёный", blue:"синий", purple:"фиолетовый",
+                            brown:"коричневый", black:"чёрный" };
+      const beltText = c.belt
+        ? ` · пояс ${BELT_RU_ROW[c.belt] || c.belt}${c.stripes ? " (" + c.stripes + ")" : ""}`
+        : "";
       const isOpen = expandedIds.has(c.id);
-      const noteVal = (c.note || "").replace(/</g, "&lt;");
 
       return `
         <div class="card">
           <div class="card-header" onclick="toggleExpand(${c.id})">
             <div class="card-header-text">
-              <div class="client-name">${c.full_name}</div>
-              <div class="client-sub">${c.sub_end_date ? c.sub_end_date : "нет абонемента"}</div>
+              <div class="client-name">${esc(c.full_name)}</div>
+              <div class="client-sub">${c.sub_end_date ? esc(c.sub_end_date) : "нет абонемента"}</div>
             </div>
             <div class="expand-arrow ${isOpen ? 'open' : ''}">v</div>
           </div>
           <div class="card-details ${isOpen ? 'open' : ''}" id="details-${c.id}">
-            <div>${groupLabel} · д.р. ${birthLabel}</div>
-            <div style="margin-top:6px;"><span class="status-badge ${badgeClass}">${badgeText}</span></div>
-            <button class="primary" onclick="openModal(${c.id}, '${safeName}')">Отметить оплату</button>
+            <div>${groupLabel} · д.р. ${esc(birthLabel)}${beltText}</div>
+            <div style="margin-top:6px;"><span class="status-badge ${badgeClass}">${esc(badgeText)}</span></div>
+            <button class="primary" onclick="openModal(${c.id})">Отметить оплату</button>
             <div class="row-buttons">
-              <button class="small-secondary" onclick="openEditModal(${c.id}, '${safeName}')">Изменить имя</button>
-              <button class="small-danger" onclick="deleteClient(${c.id}, '${safeName}')">Удалить</button>
+              <button class="small-secondary" onclick="openEditModal(${c.id})">Изменить имя</button>
+              <button class="small-secondary" onclick="openBeltModal(${c.id})">Пояс</button>
+            </div>
+            <div class="row-buttons">
+              <button class="small-danger" style="width:100%;" onclick="deleteClient(${c.id})">Удалить клиента</button>
             </div>
             <div class="note-label">Заметка (видна только вам)</div>
-            <textarea id="note-${c.id}" rows="2" placeholder="Например: платит наличными">${noteVal}</textarea>
+            <textarea id="note-${c.id}" rows="2" placeholder="Например: платит наличными">${esc(c.note)}</textarea>
             <button class="small-secondary" style="width:100%;margin-top:8px;" onclick="saveNote(${c.id})">Сохранить заметку</button>
           </div>
         </div>
@@ -460,19 +659,25 @@
     }
   }
 
-  function openModal(clientId, name) {
+  function clientName(clientId) {
+    const c = allClients.find(x => x.id === clientId);
+    return c ? c.full_name : "";
+  }
+
+  function openModal(clientId) {
     currentClientId = clientId;
-    document.getElementById("modalClientName").textContent = "Оплата: " + name;
+    document.getElementById("modalClientName").textContent = "Оплата: " + clientName(clientId);
     document.getElementById("mDate").value = new Date().toISOString().slice(0, 10);
+    document.getElementById("mAmount").value = "";
     document.getElementById("modalBg").style.display = "flex";
   }
   document.getElementById("modalBg").addEventListener("click", (e) => {
     if (e.target.id === "modalBg") document.getElementById("modalBg").style.display = "none";
   });
 
-  function openEditModal(clientId, name) {
+  function openEditModal(clientId) {
     currentClientId = clientId;
-    document.getElementById("eName").value = name;
+    document.getElementById("eName").value = clientName(clientId);
     document.getElementById("editModalBg").style.display = "flex";
   }
   document.getElementById("editModalBg").addEventListener("click", (e) => {
@@ -495,7 +700,8 @@
     }
   }
 
-  async function deleteClient(clientId, name) {
+  async function deleteClient(clientId) {
+    const name = clientName(clientId);
     if (!confirm(`Удалить ${name} из базы? Это действие необратимо.`)) return;
     const res = await fetch("/api/admin/delete_client", {
       method: "POST",
@@ -518,6 +724,7 @@
       payment_date: document.getElementById("mDate").value,
       months: document.getElementById("mMonths").value || 1,
       visits: document.getElementById("mVisits").value,
+      amount: document.getElementById("mAmount").value,
     };
     const res = await fetch("/api/admin/mark_payment", {
       method: "POST",
@@ -552,7 +759,7 @@
     badge.innerHTML = `<span class="badge-count">${data.requests.length}</span>`;
     view.innerHTML = data.requests.map(r => `
       <div class="card">
-        <div class="client-name">${r.full_name}</div>
+        <div class="client-name">${esc(r.full_name)}</div>
         <div class="client-sub">Просит заморозку на ${r.days_requested} дн. · заявка от ${r.created_at}</div>
         <div class="row-buttons">
           <button class="primary" style="background:var(--bone);color:var(--ink);" onclick="decideFreeze(${r.id}, true)">Одобрить</button>
@@ -597,7 +804,7 @@
     badge.innerHTML = `<span class="badge-count">${data.requests.length}</span>`;
     view.innerHTML = data.requests.map(r => `
       <div class="card">
-        <div class="client-name">${r.full_name}</div>
+        <div class="client-name">${esc(r.full_name)}</div>
         <div class="client-sub">Просит начать с ${r.requested_date_display} · заявка от ${r.created_at}</div>
         <div class="row-buttons">
           <button class="primary" style="background:var(--bone);color:var(--ink);" onclick="decideActivation(${r.id}, true)">Одобрить</button>
@@ -647,6 +854,280 @@
     } else {
       alert("Ошибка: " + (data.error || "неизвестная"));
     }
+  }
+
+  // ---------- Посещаемость ----------
+
+  let attendGroup = null;
+  let attendData = [];
+
+  function setAttendGroup(g) {
+    attendGroup = g;
+    document.getElementById("attGroupAll").classList.toggle("active", g === null);
+    document.getElementById("attGroupAdult").classList.toggle("active", g === "adult");
+    document.getElementById("attGroupKids").classList.toggle("active", g === "kids");
+    loadAttendance();
+  }
+
+  async function loadAttendance() {
+    const dateEl = document.getElementById("attendDate");
+    if (!dateEl.value) dateEl.value = new Date().toISOString().slice(0, 10);
+    const q = attendGroup ? "&group=" + attendGroup : "";
+    const res = await fetch("/api/admin/attendance?initData=" + encodeURIComponent(initData)
+                            + "&date=" + dateEl.value + q);
+    const data = await res.json();
+    if (data.error) {
+      document.getElementById("attendList").innerHTML = '<div class="empty">Нет доступа.</div>';
+      return;
+    }
+    attendData = data.clients;
+    renderAttendance();
+  }
+
+  function renderAttendance() {
+    const view = document.getElementById("attendList");
+    const term = (document.getElementById("attendSearch").value || "").toLowerCase().trim();
+    const list = attendData.filter(c => c.full_name.toLowerCase().includes(term));
+
+    const present = attendData.filter(c => c.present).length;
+    document.getElementById("attendSummary").textContent =
+      `Отмечено: ${present} из ${attendData.length}`;
+
+    if (!list.length) {
+      view.innerHTML = '<div class="empty">Никого не найдено.</div>';
+      return;
+    }
+    view.innerHTML = list.map(c => `
+      <div class="attend-row ${c.present ? "present" : ""}" onclick="toggleAttendance(${c.id})">
+        <div class="attend-check">X</div>
+        <div class="attend-name">${esc(c.full_name)}</div>
+        <div class="attend-count">${c.month_visits} в месяце</div>
+      </div>
+    `).join("");
+  }
+
+  async function toggleAttendance(clientId) {
+    const c = attendData.find(x => x.id === clientId);
+    if (!c) return;
+    const newState = !c.present;
+    c.present = newState;            // сразу показываем результат
+    if (newState) c.month_visits += 1; else c.month_visits = Math.max(0, c.month_visits - 1);
+    renderAttendance();
+
+    const res = await fetch("/api/admin/attendance_toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        initData, client_id: clientId,
+        date: document.getElementById("attendDate").value,
+        present: newState,
+      }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred("light");
+    } else {
+      c.present = !newState;         // откатываем, если сервер не принял
+      renderAttendance();
+      alert("Не удалось сохранить отметку.");
+    }
+  }
+
+  // ---------- Расписание ----------
+
+  const DAY_NAMES = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"];
+  let editingScheduleId = null;
+  let scheduleData = [];
+
+  async function loadSchedule() {
+    const res = await fetch("/api/admin/schedule?initData=" + encodeURIComponent(initData));
+    const data = await res.json();
+    const view = document.getElementById("scheduleList");
+    if (data.error) {
+      view.innerHTML = '<div class="empty">Нет доступа.</div>';
+      return;
+    }
+    scheduleData = data.schedule;
+    if (!data.schedule.length) {
+      view.innerHTML = '<div class="empty">Расписание пустое.<br>Добавьте первое занятие.</div>';
+      return;
+    }
+    let html = "";
+    let lastDay = -1;
+    data.schedule.forEach(s => {
+      if (s.day_of_week !== lastDay) {
+        html += `<div class="note-label" style="margin-top:16px;">${DAY_NAMES[s.day_of_week]}</div>`;
+        lastDay = s.day_of_week;
+      }
+      const time = s.end_time ? `${s.start_time}–${s.end_time}` : s.start_time;
+      const grp = s.group_type === "all" ? "Все" : (s.group_type === "kids" ? "Kids" : "Adult");
+      html += `
+        <div class="sched-item">
+          <div class="sched-item-time">${esc(time)}</div>
+          <div class="client-sub">${esc(s.title)} · ${grp}</div>
+          <div class="row-buttons">
+            <button class="small-secondary" onclick="editSchedule(${s.id})">Изменить</button>
+            <button class="small-danger" onclick="deleteSchedule(${s.id})">Удалить</button>
+          </div>
+        </div>`;
+    });
+    view.innerHTML = html;
+  }
+
+  function openScheduleModal() {
+    editingScheduleId = null;
+    document.getElementById("scheduleModalTitle").textContent = "Новое занятие";
+    document.getElementById("sDay").value = "0";
+    document.getElementById("sStart").value = "18:00";
+    document.getElementById("sEnd").value = "";
+    document.getElementById("sTitle").value = "";
+    document.getElementById("sGroup").value = "all";
+    document.getElementById("scheduleModalBg").style.display = "flex";
+  }
+
+  function editSchedule(entryId) {
+    const s = scheduleData.find(x => x.id === entryId);
+    if (!s) return;
+    editingScheduleId = s.id;
+    document.getElementById("scheduleModalTitle").textContent = "Изменить занятие";
+    document.getElementById("sDay").value = String(s.day_of_week);
+    document.getElementById("sStart").value = s.start_time;
+    document.getElementById("sEnd").value = s.end_time || "";
+    document.getElementById("sTitle").value = s.title;
+    document.getElementById("sGroup").value = s.group_type;
+    document.getElementById("scheduleModalBg").style.display = "flex";
+  }
+
+  document.getElementById("scheduleModalBg").addEventListener("click", (e) => {
+    if (e.target.id === "scheduleModalBg") document.getElementById("scheduleModalBg").style.display = "none";
+  });
+
+  async function submitSchedule() {
+    const title = document.getElementById("sTitle").value.trim();
+    const start_time = document.getElementById("sStart").value;
+    if (!title || !start_time) {
+      alert("Заполните название и время начала.");
+      return;
+    }
+    const res = await fetch("/api/admin/schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        initData,
+        id: editingScheduleId,
+        day_of_week: parseInt(document.getElementById("sDay").value, 10),
+        start_time,
+        end_time: document.getElementById("sEnd").value,
+        title,
+        group_type: document.getElementById("sGroup").value,
+      }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById("scheduleModalBg").style.display = "none";
+      tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+      loadSchedule();
+    } else {
+      alert("Ошибка: " + (data.error || "неизвестная"));
+    }
+  }
+
+  async function deleteSchedule(id) {
+    if (!confirm("Удалить это занятие из расписания?")) return;
+    const res = await fetch("/api/admin/schedule_delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, id }),
+    });
+    const data = await res.json();
+    if (data.ok) loadSchedule(); else alert("Не удалось удалить.");
+  }
+
+  // ---------- Пояса ----------
+
+  const BELTS_ADULT = ["white","blue","purple","brown","black"];
+  const BELTS_KIDS = ["white","grey","yellow","orange","green"];
+  const BELT_RU = { white:"Белый", grey:"Серый", yellow:"Жёлтый", orange:"Оранжевый",
+                    green:"Зелёный", blue:"Синий", purple:"Фиолетовый",
+                    brown:"Коричневый", black:"Чёрный" };
+
+  function openBeltModal(clientId) {
+    currentClientId = clientId;
+    const c = allClients.find(x => x.id === clientId);
+    if (!c) return;
+    document.getElementById("beltModalTitle").textContent = "Пояс: " + c.full_name;
+    const belts = c.group_type === "kids" ? BELTS_KIDS : BELTS_ADULT;
+    document.getElementById("bBelt").innerHTML =
+      '<option value="">— не присвоен —</option>' +
+      belts.map(b => `<option value="${b}">${BELT_RU[b]}</option>`).join("");
+    document.getElementById("bBelt").value = c.belt || "";
+    document.getElementById("bStripes").value = String(c.stripes || 0);
+    document.getElementById("beltModalBg").style.display = "flex";
+  }
+  document.getElementById("beltModalBg").addEventListener("click", (e) => {
+    if (e.target.id === "beltModalBg") document.getElementById("beltModalBg").style.display = "none";
+  });
+
+  async function submitBelt() {
+    const res = await fetch("/api/admin/set_belt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        initData,
+        client_id: currentClientId,
+        belt: document.getElementById("bBelt").value,
+        stripes: parseInt(document.getElementById("bStripes").value, 10),
+      }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById("beltModalBg").style.display = "none";
+      tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+      loadClients();
+    } else {
+      alert("Ошибка: " + (data.error || "неизвестная"));
+    }
+  }
+
+  // ---------- Статистика ----------
+
+  let statsMonth = null;
+
+  async function loadStats() {
+    const q = statsMonth ? "&month=" + statsMonth : "";
+    const res = await fetch("/api/admin/stats?initData=" + encodeURIComponent(initData) + q);
+    const s = await res.json();
+    const view = document.getElementById("statsBody");
+    if (s.error) {
+      view.innerHTML = '<div class="empty">Нет доступа.</div>';
+      return;
+    }
+    statsMonth = s.month_key;
+    const money = s.revenue ? Number(s.revenue).toLocaleString("ru-RU") : "0";
+    view.innerHTML = `
+      <div class="month-nav">
+        <button onclick="shiftStatsMonth(-1)">‹</button>
+        <span class="m">${esc(s.month)}</span>
+        <button onclick="shiftStatsMonth(1)">›</button>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-box accent"><div class="n">${money}</div><div class="k">доход за месяц</div></div>
+        <div class="stat-box"><div class="n">${s.payments}</div><div class="k">оплат за месяц</div></div>
+        <div class="stat-box"><div class="n">${s.active_subscriptions}</div><div class="k">активных абонементов</div></div>
+        <div class="stat-box"><div class="n">${s.without_subscription}</div><div class="k">без абонемента</div></div>
+        <div class="stat-box"><div class="n">${s.new_clients}</div><div class="k">новых за месяц</div></div>
+        <div class="stat-box"><div class="n">${s.visits}</div><div class="k">посещений за месяц</div></div>
+        <div class="stat-box"><div class="n">${s.adults}</div><div class="k">взрослых всего</div></div>
+        <div class="stat-box"><div class="n">${s.kids}</div><div class="k">детей всего</div></div>
+      </div>
+    `;
+  }
+
+  function shiftStatsMonth(delta) {
+    const [y, m] = statsMonth.split("-").map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    statsMonth = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+    loadStats();
   }
 
   async function loadAnnouncement() {
