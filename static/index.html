@@ -271,6 +271,80 @@
   }
   .footer-links a:active { border-color: var(--red); color: var(--red-bright); }
   .footer-links svg { width: 19px; height: 19px; fill: currentColor; }
+  .section-title {
+    font-family: 'Oswald', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ash);
+    margin: 24px 0 10px;
+  }
+  .sched-day {
+    font-family: 'Oswald', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--red-bright);
+    margin-top: 14px;
+    margin-bottom: 6px;
+  }
+  .sched-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--paper-line);
+  }
+  .sched-row:last-child { border-bottom: none; }
+  .sched-time {
+    font-family: 'Oswald', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    min-width: 92px;
+  }
+  .sched-title { font-size: 14px; flex: 1; }
+  .sched-tag { font-size: 11px; color: var(--ash); }
+  .today-row { color: var(--bone); }
+  .today-row .sched-time { color: var(--red-bright); }
+  .stat-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .stat-big {
+    font-family: 'Oswald', sans-serif;
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .belt-bar {
+    height: 16px;
+    border-radius: 2px;
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 6px;
+    gap: 3px;
+    border: 1px solid var(--paper-line);
+  }
+  .belt-stripe {
+    width: 3px;
+    height: 10px;
+    background: var(--bone);
+    display: block;
+  }
+  .visit-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .visit-chip {
+    font-size: 12px;
+    padding: 3px 8px;
+    border: 1px solid var(--paper-line);
+    border-radius: 3px;
+    color: var(--ash);
+  }
 </style>
 </head>
 <body>
@@ -335,6 +409,7 @@
       registerBtn: "Зарегистрироваться",
       chooseGroupAlert: "Выберите группу: Adult или Kids",
       enterNameAlert: "Введите имя и фамилию",
+      enterBirthAlert: "Укажите дату рождения",
       registerFail: "Не удалось зарегистрироваться. Попробуйте ещё раз.",
       networkError: "Ошибка сети. Попробуйте позже.",
       freezeTitle: "Заморозить абонемент",
@@ -347,6 +422,18 @@
       activateSubmit: "Отправить заявку",
       activateSent: "Заявка отправлена тренеру. Ждите подтверждения.",
       activateFail: "Не удалось отправить заявку. Попробуйте позже.",
+      alreadyPending: "Ваша предыдущая заявка ещё на рассмотрении у тренера.",
+      schedule: "Расписание",
+      noSchedule: "Расписание пока не заполнено.",
+      attendance: "Посещения",
+      thisMonth: "в этом месяце",
+      visitsWord: "тренировок",
+      noVisits: "В этом месяце отметок пока нет.",
+      belt: "Пояс",
+      noBelt: "Пояс пока не присвоен",
+      stripesWord: "полосок",
+      lastPromo: "Аттестация",
+      days: ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"],
       of: "из",
     },
     en: {
@@ -368,6 +455,7 @@
       registerBtn: "Register",
       chooseGroupAlert: "Please choose a group: Adult or Kids",
       enterNameAlert: "Please enter first and last name",
+      enterBirthAlert: "Please enter the date of birth",
       registerFail: "Registration failed. Please try again.",
       networkError: "Network error. Please try again later.",
       freezeTitle: "Freeze subscription",
@@ -380,6 +468,18 @@
       activateSubmit: "Send request",
       activateSent: "Request sent to your trainer. Awaiting approval.",
       activateFail: "Couldn't send the request. Please try again later.",
+      alreadyPending: "Your previous request is still awaiting the trainer's decision.",
+      schedule: "Schedule",
+      noSchedule: "The schedule has not been set yet.",
+      attendance: "Attendance",
+      thisMonth: "this month",
+      visitsWord: "sessions",
+      noVisits: "No check-ins recorded this month yet.",
+      belt: "Belt",
+      noBelt: "No belt assigned yet",
+      stripesWord: "stripes",
+      lastPromo: "Promoted",
+      days: ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"],
       of: "of",
     },
   };
@@ -389,6 +489,15 @@
 
   function t(key) {
     return T[lang][key];
+  }
+
+  function esc(str) {
+    return String(str == null ? "" : str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
   function setLang(newLang) {
@@ -479,7 +588,7 @@
       }
       subHtml = `
         <div class="label">${t("subscription")}</div>
-        <div class="value">${s.title}</div>
+        <div class="value">${esc(s.title)}</div>
         <div class="label">${t("validUntil")}</div>
         <div class="value">${s.end_date}</div>
         ${visitsHtml}
@@ -499,12 +608,94 @@
 
     content.innerHTML = `
       <div class="card id-card">
-        <div class="name">${data.full_name}</div>
+        <div class="name">${esc(data.full_name)}</div>
         ${groupTag}
+        ${beltHtml(data)}
         ${subHtml}
         ${actionBtn}
       </div>
+      ${attendanceHtml(data)}
+      ${scheduleHtml(data.schedule)}
     `;
+  }
+
+  const BELT_COLORS = {
+    white: "#F5F3EE", grey: "#8A8A8A", yellow: "#E3C02B", orange: "#DE7C2A",
+    green: "#3F7D3A", blue: "#1F4FA8", purple: "#5B2E8C",
+    brown: "#5C3A21", black: "#1A1A1A",
+  };
+  const BELT_NAMES = {
+    ru: { white:"Белый", grey:"Серый", yellow:"Жёлтый", orange:"Оранжевый", green:"Зелёный",
+          blue:"Синий", purple:"Фиолетовый", brown:"Коричневый", black:"Чёрный" },
+    en: { white:"White", grey:"Grey", yellow:"Yellow", orange:"Orange", green:"Green",
+          blue:"Blue", purple:"Purple", brown:"Brown", black:"Black" },
+  };
+
+  function beltHtml(data) {
+    if (!data.belt) {
+      return `<div class="label">${t("belt")}</div>
+              <div class="status-badge status-none">${t("noBelt")}</div>`;
+    }
+    const color = BELT_COLORS[data.belt] || "#8A8A8A";
+    const name = (BELT_NAMES[lang] && BELT_NAMES[lang][data.belt]) || data.belt;
+    const stripes = Array.from({ length: data.stripes || 0 })
+      .map(() => '<span class="belt-stripe"></span>').join("");
+    const promo = data.belt_updated
+      ? `<div class="sched-tag" style="margin-top:4px;">${t("lastPromo")}: ${esc(data.belt_updated)}</div>`
+      : "";
+    return `
+      <div class="label">${t("belt")}</div>
+      <div class="value">${esc(name)}${data.stripes ? ` · ${data.stripes} ${t("stripesWord")}` : ""}</div>
+      <div class="belt-bar" style="background:${color};">${stripes}</div>
+      ${promo}
+    `;
+  }
+
+  function attendanceHtml(data) {
+    const chips = (data.recent_visits || [])
+      .map(d => `<span class="visit-chip">${esc(d)}</span>`).join("");
+    return `
+      <div class="section-title">${t("attendance")}</div>
+      <div class="card">
+        <div class="stat-row">
+          <span class="stat-big">${data.visits_this_month || 0}</span>
+          <span class="sched-tag">${t("visitsWord")} ${t("thisMonth")}</span>
+        </div>
+        ${chips ? `<div class="visit-chips">${chips}</div>`
+                : `<div class="sched-tag" style="margin-top:8px;">${t("noVisits")}</div>`}
+      </div>
+    `;
+  }
+
+  function scheduleHtml(schedule) {
+    if (!schedule || !schedule.length) {
+      return `<div class="section-title">${t("schedule")}</div>
+              <div class="card"><div class="sched-tag">${t("noSchedule")}</div></div>`;
+    }
+    // в JS воскресенье = 0, у нас понедельник = 0
+    const todayIdx = (new Date().getDay() + 6) % 7;
+    const byDay = {};
+    schedule.forEach(s => {
+      (byDay[s.day_of_week] = byDay[s.day_of_week] || []).push(s);
+    });
+    let html = `<div class="section-title">${t("schedule")}</div><div class="card">`;
+    for (let d = 0; d < 7; d++) {
+      if (!byDay[d]) continue;
+      const isToday = d === todayIdx;
+      html += `<div class="sched-day">${t("days")[d]}${isToday ? " •" : ""}</div>`;
+      byDay[d].forEach(s => {
+        const time = s.end_time ? `${s.start_time}–${s.end_time}` : s.start_time;
+        const tag = s.group_type === "all" ? "" :
+          `<span class="sched-tag">${s.group_type === "kids" ? "Kids" : "Adult"}</span>`;
+        html += `
+          <div class="sched-row ${isToday ? "today-row" : ""}">
+            <span class="sched-time">${esc(time)}</span>
+            <span class="sched-title">${esc(s.title)}</span>
+            ${tag}
+          </div>`;
+      });
+    }
+    return html + "</div>";
   }
 
   let selectedGroup = null;
@@ -547,6 +738,10 @@
       alert(t("enterNameAlert"));
       return;
     }
+    if (!birth_date) {
+      alert(t("enterBirthAlert"));
+      return;
+    }
     const initData = (tg && tg.initData) || "";
     try {
       const res = await fetch("/api/register", {
@@ -587,6 +782,8 @@
       if (data.ok) {
         tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
         alert(t("freezeSent"));
+      } else if (data.error === "already_pending") {
+        alert(t("alreadyPending"));
       } else {
         alert(t("freezeFail"));
       }
@@ -617,6 +814,8 @@
       if (data.ok) {
         tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
         alert(t("activateSent"));
+      } else if (data.error === "already_pending") {
+        alert(t("alreadyPending"));
       } else {
         alert(t("activateFail"));
       }
