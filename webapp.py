@@ -120,6 +120,7 @@ def api_me():
         subscription = {
             "title": sub["title"],
             "end_date": fmt_date(sub["end_date"]),
+            "unlimited": bool(sub["unlimited"]),
             "visits_total": sub["visits_total"],
             "visits_left": sub["visits_left"],
         }
@@ -243,7 +244,10 @@ def api_admin_clients():
             end = datetime.fromisoformat(c["sub_end_date"])
             end_date = fmt_date(c["sub_end_date"])
             days_left = (end.date() - now.date()).days
-            if days_left < 0:
+            if c["unlimited"]:
+                status = "unlimited"
+                end_date = None
+            elif days_left < 0:
                 status = "overdue"
             elif days_left <= 3:
                 status = "expiring"
@@ -256,6 +260,7 @@ def api_admin_clients():
             "group_type": c["group_type"],
             "birth_date": c["birth_date"],
             "note": c["note"],
+            "unlimited": bool(c["unlimited"]),
             "belt": c["belt"],
             "stripes": c["stripes"],
             "sub_title": c["sub_title"],
@@ -327,6 +332,7 @@ def api_admin_mark_payment():
     months = int(body.get("months", 1))
     visits = body.get("visits")
     visits = int(visits) if visits not in (None, "") else None
+    unlimited = bool(body.get("unlimited"))
     amount = body.get("amount")
     try:
         amount = float(amount) if amount not in (None, "") else DEFAULT_PRICE
@@ -342,16 +348,22 @@ def api_admin_mark_payment():
     except (ValueError, TypeError):
         return jsonify({"error": "bad_date"}), 400
 
-    db.add_subscription(client["id"], title, payment_date, months, visits, amount)
+    db.add_subscription(client["id"], title, payment_date, months, visits, amount, unlimited)
     db.resolve_pending_activation_requests(client["id"])
 
-    from dateutil.relativedelta import relativedelta
-    next_due = payment_date + relativedelta(months=months)
-    notify_telegram(
-        client["telegram_id"],
-        f"Оплата абонемента «{title}» зафиксирована. "
-        f"Следующая оплата: {next_due.strftime('%d.%m.%Y')}.",
-    )
+    if unlimited:
+        notify_telegram(
+            client["telegram_id"],
+            f"Вам оформлен безлимитный абонемент «{title}». Срок не ограничен.",
+        )
+    else:
+        from dateutil.relativedelta import relativedelta
+        next_due = payment_date + relativedelta(months=months)
+        notify_telegram(
+            client["telegram_id"],
+            f"Оплата абонемента «{title}» зафиксирована. "
+            f"Следующая оплата: {next_due.strftime('%d.%m.%Y')}.",
+        )
 
     return jsonify({"ok": True})
 
@@ -386,8 +398,13 @@ def api_freeze_request():
     if not client:
         return jsonify({"error": "not_registered"}), 404
 
-    if not db.get_active_subscription(client["id"]):
+    active_sub = db.get_active_subscription(client["id"])
+    if not active_sub:
         return jsonify({"error": "no_active_subscription"}), 400
+
+    # безлимитный абонемент не истекает — замораживать нечего
+    if active_sub["unlimited"]:
+        return jsonify({"error": "unlimited_subscription"}), 400
 
     if db.has_pending_freeze_request(client["id"]):
         return jsonify({"error": "already_pending"}), 409

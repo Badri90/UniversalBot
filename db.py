@@ -69,7 +69,8 @@ def init_db():
                 visits_left INTEGER,
                 status TEXT NOT NULL DEFAULT 'active',
                 notified_expiring INTEGER NOT NULL DEFAULT 0,
-                last_reminder_date TEXT
+                last_reminder_date TEXT,
+                unlimited INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS trainings (
@@ -132,6 +133,8 @@ def init_db():
             conn.execute("ALTER TABLE subscriptions ADD COLUMN last_reminder_date TEXT")
         if "amount" not in sub_cols:
             conn.execute("ALTER TABLE subscriptions ADD COLUMN amount REAL")
+        if "unlimited" not in sub_cols:
+            conn.execute("ALTER TABLE subscriptions ADD COLUMN unlimited INTEGER NOT NULL DEFAULT 0")
 
 
 # ---------- Клиенты ----------
@@ -205,7 +208,7 @@ def list_clients_with_subscription(group_type: str = None):
     query = """
         SELECT c.id, c.full_name, c.telegram_id, c.group_type, c.birth_date, c.note,
                c.belt, c.stripes, c.belt_updated,
-               s.id AS sub_id, s.title AS sub_title, s.end_date AS sub_end_date,
+               s.id AS sub_id, s.title AS sub_title, s.end_date AS sub_end_date, s.unlimited,
                s.visits_total, s.visits_left, s.status AS sub_status
         FROM clients c
         LEFT JOIN subscriptions s ON s.id = (
@@ -553,14 +556,22 @@ def get_stats(month_start: str, month_end: str):
             (now,),
         ).fetchone()["n"]
 
+        # безлимитные (бесплатные / особые условия) в доход не попадают
         revenue_row = conn.execute(
             """
             SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS payments
             FROM subscriptions
-            WHERE start_date BETWEEN ? AND ?
+            WHERE start_date BETWEEN ? AND ? AND unlimited = 0
             """,
             (month_start, month_end),
         ).fetchone()
+
+        unlimited_count = conn.execute(
+            """
+            SELECT COUNT(DISTINCT client_id) AS n FROM subscriptions
+            WHERE status = 'active' AND unlimited = 1
+            """
+        ).fetchone()["n"]
 
         new_clients = conn.execute(
             "SELECT COUNT(*) AS n FROM clients WHERE created_at BETWEEN ? AND ?",
@@ -577,6 +588,8 @@ def get_stats(month_start: str, month_end: str):
         "adults": adults,
         "kids": kids,
         "active_subscriptions": active,
+        "unlimited_clients": unlimited_count,
+        "paid_subscriptions": active - unlimited_count,
         "without_subscription": total - active,
         "revenue": revenue_row["total"],
         "payments": revenue_row["payments"],
@@ -600,22 +613,31 @@ def list_all_clients():
 # ---------- Абонементы ----------
 
 def add_subscription(client_id: int, title: str, payment_date: datetime,
-                      months: int = 1, visits: int = None, amount: float = None):
+                      months: int = 1, visits: int = None, amount: float = None,
+                      unlimited: bool = False):
     """
     payment_date — дата, когда клиент оплатил.
     Следующая оплата (end_date) считается как та же дата через `months` месяцев
     (05.10 -> 05.11 при months=1), а не просто "+30 дней".
     amount — сумма оплаты, нужна для подсчёта дохода в статистике.
+    unlimited — абонемент на особых условиях (бесплатно, тренер, партнёр):
+    не истекает, не даёт напоминаний и не учитывается в доходе.
     """
-    end = payment_date + relativedelta(months=months)
+    if unlimited:
+        end = payment_date + relativedelta(years=100)
+        amount = None
+    else:
+        end = payment_date + relativedelta(months=months)
     with get_conn() as conn:
         conn.execute(
             """
             INSERT INTO subscriptions
-                (client_id, title, start_date, end_date, visits_total, visits_left, status, amount)
-            VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
+                (client_id, title, start_date, end_date, visits_total, visits_left,
+                 status, amount, unlimited)
+            VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
             """,
-            (client_id, title, payment_date.isoformat(), end.isoformat(), visits, visits, amount),
+            (client_id, title, payment_date.isoformat(), end.isoformat(),
+             visits, visits, amount, 1 if unlimited else 0),
         )
 
 
@@ -660,7 +682,8 @@ def latest_subscriptions_for_reminders():
             """
             SELECT s.*, c.telegram_id, c.full_name FROM subscriptions s
             JOIN clients c ON c.id = s.client_id
-            WHERE s.id = (
+            WHERE s.unlimited = 0
+              AND s.id = (
                 SELECT id FROM subscriptions
                 WHERE client_id = s.client_id
                 ORDER BY end_date DESC LIMIT 1
