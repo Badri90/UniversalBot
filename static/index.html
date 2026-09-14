@@ -201,15 +201,6 @@
     letter-spacing: 0.02em;
   }
   .group-btn.selected { border-color: var(--red-bright); color: var(--red-bright); }
-  input[type="date"] {
-    -webkit-appearance: none;
-    appearance: none;
-    text-align: left;
-    line-height: normal;
-  }
-  input[type="date"]::-webkit-date-and-time-value {
-    text-align: left;
-  }
   button.primary-full {
     width: 100%;
     padding: 15px;
@@ -320,22 +311,48 @@
     font-weight: 700;
     line-height: 1;
   }
-  .belt-bar {
-    height: 16px;
+  .belt {
+    position: relative;
+    height: 34px;
     border-radius: 2px;
-    margin-top: 8px;
+    margin-top: 10px;
+    display: flex;
+    justify-content: flex-end;
+    overflow: hidden;
+    box-shadow: inset 0 -6px 10px rgba(0,0,0,0.25), inset 0 6px 8px rgba(255,255,255,0.06);
+  }
+  /* продольные швы, как на настоящем поясе */
+  .belt::before {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; top: 7px; bottom: 7px;
+    border-top: 1px solid rgba(0,0,0,0.18);
+    border-bottom: 1px solid rgba(0,0,0,0.18);
+    pointer-events: none;
+  }
+  /* чёрная нашивка на конце пояса, где ставят полоски */
+  .belt-rank {
+    position: relative;
+    width: 86px;
+    background: #0D0D0D;
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    padding-right: 6px;
-    gap: 3px;
-    border: 1px solid var(--paper-line);
+    justify-content: center;
+    gap: 6px;
+    border-left: 2px solid rgba(0,0,0,0.35);
   }
+  .belt-rank.red { background: #8E1111; }
   .belt-stripe {
-    width: 3px;
-    height: 10px;
-    background: var(--bone);
-    display: block;
+    width: 5px;
+    height: 22px;
+    background: #F5F3EE;
+    border-radius: 1px;
+  }
+  .belt-caption {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-top: 6px;
   }
   .visit-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .visit-chip {
@@ -345,6 +362,122 @@
     border-radius: 3px;
     color: var(--ash);
   }
+  .cal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .cal-head button {
+    background: transparent;
+    border: 1px solid var(--paper-line);
+    color: var(--bone);
+    border-radius: 3px;
+    padding: 6px 13px;
+    font-size: 15px;
+  }
+  .cal-month {
+    font-family: 'Oswald', sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+  }
+  .cal-dow {
+    text-align: center;
+    font-size: 11px;
+    color: var(--ash);
+    padding-bottom: 4px;
+  }
+  .cal-cell {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    border-radius: 3px;
+    color: var(--ash);
+  }
+  .cal-cell.filled { color: var(--bone); }
+  .cal-cell.visited {
+    background: var(--red);
+    color: var(--bone);
+    font-weight: 700;
+  }
+  .cal-cell.today { border: 1px solid var(--ash); }
+  .admin-bar {
+    background: var(--paper);
+    border: 1px solid var(--red);
+    border-radius: 3px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+  }
+  .admin-bar button {
+    background: var(--red);
+    color: var(--bone);
+    border: none;
+    border-radius: 3px;
+    padding: 7px 13px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .date-field {
+    width: 100%;
+    padding: 11px 12px;
+    border-radius: 3px;
+    border: 1px solid var(--paper-line);
+    background: var(--ink);
+    color: var(--bone);
+    font-size: 15px;
+    margin-top: 6px;
+    text-align: left;
+    font-family: inherit;
+  }
+  .date-field.empty { color: var(--ash); }
+  .picker-bg {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.8);
+    align-items: center;
+    justify-content: center;
+    z-index: 30;
+    padding: 20px;
+  }
+  .picker {
+    background: var(--paper);
+    border: 1px solid var(--paper-line);
+    border-radius: 6px;
+    padding: 18px;
+    width: 100%;
+    max-width: 340px;
+  }
+  .picker-year {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .picker-year select {
+    flex: 1;
+    padding: 9px;
+    border-radius: 3px;
+    border: 1px solid var(--paper-line);
+    background: var(--ink);
+    color: var(--bone);
+    font-size: 14px;
+    font-family: inherit;
+  }
+  .picker .cal-cell { cursor: pointer; }
+  .picker .cal-cell.filled:active { background: var(--paper-line); }
+  .picker .cal-cell.selected { background: var(--red); color: var(--bone); font-weight: 700; }
 </style>
 </head>
 <body>
@@ -378,8 +511,18 @@
   <div class="modal">
     <div class="name" id="activateModalTitle">Активировать абонемент</div>
     <div class="label" id="activateDateLabelEl">Дата начала</div>
-    <input id="activateDate" type="date">
+    <button type="button" class="date-field" id="activateDateBtn" onclick="openPicker('activate')"></button>
     <button id="activateSubmitBtn" class="primary-full" onclick="submitActivation()">Отправить заявку</button>
+  </div>
+</div>
+
+<div class="picker-bg" id="pickerBg">
+  <div class="picker">
+    <div class="picker-year">
+      <select id="pickerMonth" onchange="renderPicker()"></select>
+      <select id="pickerYear" onchange="renderPicker()"></select>
+    </div>
+    <div class="cal-grid" id="pickerGrid"></div>
   </div>
 </div>
 
@@ -433,6 +576,13 @@
       noBelt: "Пояс пока не присвоен",
       stripesWord: "полосок",
       lastPromo: "Аттестация",
+      months: ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"],
+      dowShort: ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"],
+      chooseDate: "Выберите дату",
+      calendarTitle: "Календарь посещений",
+      viewingAs: "Просмотр кабинета клиента",
+      backToAdmin: "Назад в панель",
+      totalVisits: "посещений за месяц",
       days: ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"],
       of: "из",
     },
@@ -479,10 +629,20 @@
       noBelt: "No belt assigned yet",
       stripesWord: "stripes",
       lastPromo: "Promoted",
+      months: ["January","February","March","April","May","June","July","August","September","October","November","December"],
+      dowShort: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
+      chooseDate: "Select a date",
+      calendarTitle: "Attendance calendar",
+      viewingAs: "Viewing a client's cabinet",
+      backToAdmin: "Back to panel",
+      totalVisits: "sessions this month",
       days: ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"],
       of: "of",
     },
   };
+
+  const VIEW_AS = new URLSearchParams(location.search).get("as");
+  function viewAsParam() { return VIEW_AS ? "&as=" + encodeURIComponent(VIEW_AS) : ""; }
 
   let lang = localStorage.getItem("gym_lang") || "ru";
   let lastData = null;
@@ -511,6 +671,7 @@
     document.getElementById("activateModalTitle").textContent = t("activateTitle");
     document.getElementById("activateDateLabelEl").textContent = t("activateDateLabel");
     document.getElementById("activateSubmitBtn").textContent = t("activateSubmit");
+    updateDateButtons();
     if (lastData) {
       render(lastData);
     } else {
@@ -545,7 +706,7 @@
   async function load() {
     const initData = (tg && tg.initData) || "";
     try {
-      const res = await fetch("/api/me?initData=" + encodeURIComponent(initData));
+      const res = await fetch("/api/me?initData=" + encodeURIComponent(initData) + viewAsParam());
       const data = await res.json();
       lastData = data;
       render(data);
@@ -617,6 +778,16 @@
       ${attendanceHtml(data)}
       ${scheduleHtml(data.schedule)}
     `;
+
+    if (data.viewing_as_admin) {
+      const bar = document.createElement("div");
+      bar.className = "admin-bar";
+      bar.innerHTML = `<span>${t("viewingAs")}</span>
+                       <button onclick="location.href='/admin'">${t("backToAdmin")}</button>`;
+      content.prepend(bar);
+    }
+
+    loadCalendar();
   }
 
   const BELT_COLORS = {
@@ -640,30 +811,26 @@
     const name = (BELT_NAMES[lang] && BELT_NAMES[lang][data.belt]) || data.belt;
     const stripes = Array.from({ length: data.stripes || 0 })
       .map(() => '<span class="belt-stripe"></span>').join("");
+    // у чёрного пояса нашивка красная, как в BJJ
+    const rankClass = data.belt === "black" ? "belt-rank red" : "belt-rank";
     const promo = data.belt_updated
-      ? `<div class="sched-tag" style="margin-top:4px;">${t("lastPromo")}: ${esc(data.belt_updated)}</div>`
-      : "";
+      ? `<span class="sched-tag">${t("lastPromo")}: ${esc(data.belt_updated)}</span>` : "";
     return `
       <div class="label">${t("belt")}</div>
-      <div class="value">${esc(name)}${data.stripes ? ` · ${data.stripes} ${t("stripesWord")}` : ""}</div>
-      <div class="belt-bar" style="background:${color};">${stripes}</div>
-      ${promo}
+      <div class="belt" style="background:${color};">
+        <div class="${rankClass}">${stripes}</div>
+      </div>
+      <div class="belt-caption">
+        <span class="value" style="font-size:16px;">${esc(name)}${data.stripes ? ` · ${data.stripes}` : ""}</span>
+        ${promo}
+      </div>
     `;
   }
 
   function attendanceHtml(data) {
-    const chips = (data.recent_visits || [])
-      .map(d => `<span class="visit-chip">${esc(d)}</span>`).join("");
     return `
-      <div class="section-title">${t("attendance")}</div>
-      <div class="card">
-        <div class="stat-row">
-          <span class="stat-big">${data.visits_this_month || 0}</span>
-          <span class="sched-tag">${t("visitsWord")} ${t("thisMonth")}</span>
-        </div>
-        ${chips ? `<div class="visit-chips">${chips}</div>`
-                : `<div class="sched-tag" style="margin-top:8px;">${t("noVisits")}</div>`}
-      </div>
+      <div class="section-title">${t("calendarTitle")}</div>
+      <div class="card" id="calendarCard"><div class="sched-tag">…</div></div>
     `;
   }
 
@@ -713,10 +880,11 @@
         <div class="label" id="nameLabel">${t("nameLabel")}</div>
         <input id="regName" placeholder="${t("namePlaceholder")}">
         <div class="label">${t("birthDate")}</div>
-        <input id="regBirth" type="date">
+        <button type="button" class="date-field empty" id="regBirthBtn" onclick="openPicker('birth')"></button>
         <button class="primary-full" onclick="submitRegistration()">${t("registerBtn")}</button>
       </div>
     `;
+    updateDateButtons();
   }
 
   function pickGroup(group) {
@@ -733,7 +901,7 @@
       return;
     }
     const full_name = document.getElementById("regName").value.trim();
-    const birth_date = document.getElementById("regBirth").value;
+    const birth_date = pickedDates.birth;
     if (full_name.length < 2) {
       alert(t("enterNameAlert"));
       return;
@@ -759,6 +927,134 @@
     } catch (e) {
       alert(t("networkError"));
     }
+  }
+
+  // ---------- Собственный выбор даты (нативный не переводится) ----------
+
+  let pickerTarget = null;
+  const pickedDates = { birth: "", activate: "" };
+
+  function openPicker(target) {
+    pickerTarget = target;
+    const cur = pickedDates[target];
+    const d = cur ? new Date(cur) : new Date();
+    const monthSel = document.getElementById("pickerMonth");
+    const yearSel = document.getElementById("pickerYear");
+    monthSel.innerHTML = t("months")
+      .map((m, i) => `<option value="${i}">${m}</option>`).join("");
+    const thisYear = new Date().getFullYear();
+    // для даты рождения нужен большой диапазон лет, для активации — ближайшие
+    const from = target === "birth" ? thisYear - 80 : thisYear - 1;
+    const to = target === "birth" ? thisYear : thisYear + 1;
+    let years = "";
+    for (let y = to; y >= from; y--) years += `<option value="${y}">${y}</option>`;
+    yearSel.innerHTML = years;
+    monthSel.value = String(d.getMonth());
+    yearSel.value = String(d.getFullYear());
+    renderPicker();
+    document.getElementById("pickerBg").style.display = "flex";
+  }
+
+  document.getElementById("pickerBg").addEventListener("click", (e) => {
+    if (e.target.id === "pickerBg") document.getElementById("pickerBg").style.display = "none";
+  });
+
+  function renderPicker() {
+    const m = parseInt(document.getElementById("pickerMonth").value, 10);
+    const y = parseInt(document.getElementById("pickerYear").value, 10);
+    const grid = document.getElementById("pickerGrid");
+    const selected = pickedDates[pickerTarget];
+
+    let html = t("dowShort").map(d => `<div class="cal-dow">${d}</div>`).join("");
+    const first = (new Date(y, m, 1).getDay() + 6) % 7;   // понедельник первый
+    const total = new Date(y, m + 1, 0).getDate();
+    for (let i = 0; i < first; i++) html += '<div class="cal-cell"></div>';
+    for (let d = 1; d <= total; d++) {
+      const iso = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const isSel = selected === iso;
+      html += `<div class="cal-cell filled ${isSel ? "selected" : ""}" onclick="pickDate('${iso}')">${d}</div>`;
+    }
+    grid.innerHTML = html;
+  }
+
+  function pickDate(iso) {
+    pickedDates[pickerTarget] = iso;
+    document.getElementById("pickerBg").style.display = "none";
+    updateDateButtons();
+  }
+
+  function formatDate(iso) {
+    if (!iso) return t("chooseDate");
+    const [y, m, d] = iso.split("-");
+    return `${d}.${m}.${y}`;
+  }
+
+  function updateDateButtons() {
+    const birthBtn = document.getElementById("regBirthBtn");
+    if (birthBtn) {
+      birthBtn.textContent = formatDate(pickedDates.birth);
+      birthBtn.classList.toggle("empty", !pickedDates.birth);
+    }
+    const actBtn = document.getElementById("activateDateBtn");
+    if (actBtn) {
+      actBtn.textContent = formatDate(pickedDates.activate);
+      actBtn.classList.toggle("empty", !pickedDates.activate);
+    }
+  }
+
+  // ---------- Календарь посещений ----------
+
+  let calMonth = null;
+
+  async function loadCalendar() {
+    const initData = (tg && tg.initData) || "";
+    const q = calMonth ? "&month=" + calMonth : "";
+    const res = await fetch("/api/my_attendance?initData=" + encodeURIComponent(initData)
+                            + q + viewAsParam());
+    const data = await res.json();
+    if (data.error) return;
+    calMonth = data.month_key;
+    renderCalendar(data);
+  }
+
+  function renderCalendar(data) {
+    const el = document.getElementById("calendarCard");
+    if (!el) return;
+    const y = data.year, m = data.month - 1;
+    const visited = new Set(data.days.map(Number));
+    const now = new Date();
+    const isCurrent = now.getFullYear() === y && now.getMonth() === m;
+
+    let html = t("dowShort").map(d => `<div class="cal-dow">${d}</div>`).join("");
+    const first = (new Date(y, m, 1).getDay() + 6) % 7;
+    const total = new Date(y, m + 1, 0).getDate();
+    for (let i = 0; i < first; i++) html += '<div class="cal-cell"></div>';
+    for (let d = 1; d <= total; d++) {
+      const cls = ["cal-cell", "filled"];
+      if (visited.has(d)) cls.push("visited");
+      if (isCurrent && d === now.getDate()) cls.push("today");
+      html += `<div class="${cls.join(" ")}">${d}</div>`;
+    }
+
+    el.innerHTML = `
+      <div class="cal-head">
+        <button onclick="shiftCalendar(-1)">‹</button>
+        <span class="cal-month">${t("months")[m]} ${y}</span>
+        <button onclick="shiftCalendar(1)">›</button>
+      </div>
+      <div class="cal-grid">${html}</div>
+      <div class="stat-row" style="margin-top:12px;">
+        <span class="stat-big">${data.total}</span>
+        <span class="sched-tag">${t("totalVisits")}</span>
+      </div>
+    `;
+  }
+
+  function shiftCalendar(delta) {
+    const [y, m] = calMonth.split("-").map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    calMonth = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+    loadCalendar();
   }
 
   function openFreezeModal() {
@@ -793,7 +1089,8 @@
   }
 
   function openActivateModal() {
-    document.getElementById("activateDate").value = new Date().toISOString().slice(0, 10);
+    if (!pickedDates.activate) pickedDates.activate = new Date().toISOString().slice(0, 10);
+    updateDateButtons();
     document.getElementById("activateModalBg").style.display = "flex";
   }
   document.getElementById("activateModalBg").addEventListener("click", (e) => {
@@ -801,7 +1098,7 @@
   });
 
   async function submitActivation() {
-    const requested_date = document.getElementById("activateDate").value;
+    const requested_date = pickedDates.activate;
     const initData = (tg && tg.initData) || "";
     try {
       const res = await fetch("/api/activate_request", {
