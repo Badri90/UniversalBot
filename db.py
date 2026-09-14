@@ -92,6 +92,24 @@ def init_db():
                 text TEXT NOT NULL DEFAULT '',
                 updated_at TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS schedule (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day_of_week INTEGER NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT,
+                title TEXT NOT NULL,
+                group_type TEXT NOT NULL DEFAULT 'all',
+                updated_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS attendance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+                visit_date TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(client_id, visit_date)
+            );
             """
         )
         # Миграция: если база уже существовала без новых колонок — добавляем их
@@ -102,10 +120,18 @@ def init_db():
             conn.execute("ALTER TABLE clients ADD COLUMN birth_date TEXT")
         if "note" not in cols:
             conn.execute("ALTER TABLE clients ADD COLUMN note TEXT")
+        if "belt" not in cols:
+            conn.execute("ALTER TABLE clients ADD COLUMN belt TEXT")
+        if "stripes" not in cols:
+            conn.execute("ALTER TABLE clients ADD COLUMN stripes INTEGER NOT NULL DEFAULT 0")
+        if "belt_updated" not in cols:
+            conn.execute("ALTER TABLE clients ADD COLUMN belt_updated TEXT")
 
         sub_cols = [row["name"] for row in conn.execute("PRAGMA table_info(subscriptions)")]
         if "last_reminder_date" not in sub_cols:
             conn.execute("ALTER TABLE subscriptions ADD COLUMN last_reminder_date TEXT")
+        if "amount" not in sub_cols:
+            conn.execute("ALTER TABLE subscriptions ADD COLUMN amount REAL")
 
 
 # ---------- Клиенты ----------
@@ -178,6 +204,7 @@ def list_clients_with_subscription(group_type: str = None):
     """Для админ-панели мини-аппа: клиенты + их текущий активный абонемент (если есть)."""
     query = """
         SELECT c.id, c.full_name, c.telegram_id, c.group_type, c.birth_date, c.note,
+               c.belt, c.stripes, c.belt_updated,
                s.id AS sub_id, s.title AS sub_title, s.end_date AS sub_end_date,
                s.visits_total, s.visits_left, s.status AS sub_status
         FROM clients c
@@ -207,6 +234,15 @@ def create_freeze_request(client_id: int, days_requested: int):
             """,
             (client_id, days_requested, datetime.now().isoformat()),
         )
+
+
+def has_pending_freeze_request(client_id: int) -> bool:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM freeze_requests WHERE client_id = ? AND status = 'pending' LIMIT 1",
+            (client_id,),
+        ).fetchone()
+        return row is not None
 
 
 def list_pending_freeze_requests():
@@ -246,10 +282,11 @@ def decide_freeze_request(request_id: int, approve: bool):
         if approve:
             sub = conn.execute(
                 """
-                SELECT * FROM subscriptions WHERE client_id = ? AND status = 'active'
+                SELECT * FROM subscriptions
+                WHERE client_id = ? AND status = 'active' AND end_date >= ?
                 ORDER BY end_date DESC LIMIT 1
                 """,
-                (req["client_id"],),
+                (req["client_id"], datetime.now().isoformat()),
             ).fetchone()
             if sub:
                 new_end = datetime.fromisoformat(sub["end_date"]) + timedelta(days=req["days_requested"])
@@ -271,6 +308,15 @@ def create_activation_request(client_id: int, requested_date: str):
             """,
             (client_id, requested_date, datetime.now().isoformat()),
         )
+
+
+def has_pending_activation_request(client_id: int) -> bool:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM activation_requests WHERE client_id = ? AND status = 'pending' LIMIT 1",
+            (client_id,),
+        ).fetchone()
+        return row is not None
 
 
 def list_pending_activation_requests():
@@ -326,6 +372,185 @@ def decide_activation_request(request_id: int, approve: bool, months: int = 1):
     return req
 
 
+# ---------- Расписание ----------
+
+def list_schedule(group_type: str = None):
+    """Расписание на неделю. group_type=None — всё; иначе занятия группы + общие."""
+    query = "SELECT * FROM schedule"
+    params = ()
+    if group_type:
+        query += " WHERE group_type = ? OR group_type = 'all'"
+        params = (group_type,)
+    query += " ORDER BY day_of_week, start_time"
+    with get_conn() as conn:
+        return conn.execute(query, params).fetchall()
+
+
+def add_schedule_entry(day_of_week: int, start_time: str, title: str,
+                        group_type: str = "all", end_time: str = None):
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO schedule (day_of_week, start_time, end_time, title, group_type, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (day_of_week, start_time, end_time, title, group_type, datetime.now().isoformat()),
+        )
+
+
+def update_schedule_entry(entry_id: int, day_of_week: int, start_time: str,
+                           title: str, group_type: str, end_time: str = None):
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE schedule
+            SET day_of_week = ?, start_time = ?, end_time = ?, title = ?,
+                group_type = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (day_of_week, start_time, end_time, title, group_type,
+             datetime.now().isoformat(), entry_id),
+        )
+
+
+def delete_schedule_entry(entry_id: int):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM schedule WHERE id = ?", (entry_id,))
+
+
+# ---------- Посещения ----------
+
+def mark_attendance(client_id: int, visit_date: str):
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO attendance (client_id, visit_date, created_at)
+            VALUES (?, ?, ?)
+            """,
+            (client_id, visit_date, datetime.now().isoformat()),
+        )
+
+
+def unmark_attendance(client_id: int, visit_date: str):
+    with get_conn() as conn:
+        conn.execute(
+            "DELETE FROM attendance WHERE client_id = ? AND visit_date = ?",
+            (client_id, visit_date),
+        )
+
+
+def attendance_on_date(visit_date: str):
+    """Множество id клиентов, отмеченных на эту дату."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT client_id FROM attendance WHERE visit_date = ?", (visit_date,)
+        ).fetchall()
+        return {r["client_id"] for r in rows}
+
+
+def count_attendance(client_id: int, date_from: str, date_to: str) -> int:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM attendance
+            WHERE client_id = ? AND visit_date BETWEEN ? AND ?
+            """,
+            (client_id, date_from, date_to),
+        ).fetchone()
+        return row["n"]
+
+
+def client_attendance_dates(client_id: int, date_from: str, date_to: str):
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT visit_date FROM attendance
+            WHERE client_id = ? AND visit_date BETWEEN ? AND ?
+            ORDER BY visit_date DESC
+            """,
+            (client_id, date_from, date_to),
+        ).fetchall()
+        return [r["visit_date"] for r in rows]
+
+
+def attendance_counts_for_period(date_from: str, date_to: str):
+    """Сколько раз каждый клиент приходил за период — для колонки посещаемости."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT client_id, COUNT(*) AS n FROM attendance
+            WHERE visit_date BETWEEN ? AND ?
+            GROUP BY client_id
+            """,
+            (date_from, date_to),
+        ).fetchall()
+        return {r["client_id"]: r["n"] for r in rows}
+
+
+# ---------- Пояса ----------
+
+def update_belt(client_id: int, belt: str, stripes: int):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE clients SET belt = ?, stripes = ?, belt_updated = ? WHERE id = ?",
+            (belt, stripes, datetime.now().isoformat(), client_id),
+        )
+
+
+# ---------- Статистика ----------
+
+def get_stats(month_start: str, month_end: str):
+    """Сводка для админа: клиенты, активные абонементы, доход за период."""
+    now = datetime.now().isoformat()
+    with get_conn() as conn:
+        total = conn.execute("SELECT COUNT(*) AS n FROM clients").fetchone()["n"]
+        adults = conn.execute(
+            "SELECT COUNT(*) AS n FROM clients WHERE group_type = 'adult'"
+        ).fetchone()["n"]
+        kids = conn.execute(
+            "SELECT COUNT(*) AS n FROM clients WHERE group_type = 'kids'"
+        ).fetchone()["n"]
+
+        active = conn.execute(
+            """
+            SELECT COUNT(DISTINCT client_id) AS n FROM subscriptions
+            WHERE status = 'active' AND end_date >= ?
+            """,
+            (now,),
+        ).fetchone()["n"]
+
+        revenue_row = conn.execute(
+            """
+            SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS payments
+            FROM subscriptions
+            WHERE start_date BETWEEN ? AND ?
+            """,
+            (month_start, month_end),
+        ).fetchone()
+
+        new_clients = conn.execute(
+            "SELECT COUNT(*) AS n FROM clients WHERE created_at BETWEEN ? AND ?",
+            (month_start, month_end),
+        ).fetchone()["n"]
+
+        visits = conn.execute(
+            "SELECT COUNT(*) AS n FROM attendance WHERE visit_date BETWEEN ? AND ?",
+            (month_start[:10], month_end[:10]),
+        ).fetchone()["n"]
+
+    return {
+        "total_clients": total,
+        "adults": adults,
+        "kids": kids,
+        "active_subscriptions": active,
+        "without_subscription": total - active,
+        "revenue": revenue_row["total"],
+        "payments": revenue_row["payments"],
+        "new_clients": new_clients,
+        "visits": visits,
+    }
+
+
 def find_clients_by_name(name_part: str):
     with get_conn() as conn:
         return conn.execute(
@@ -341,33 +566,40 @@ def list_all_clients():
 # ---------- Абонементы ----------
 
 def add_subscription(client_id: int, title: str, payment_date: datetime,
-                      months: int = 1, visits: int = None):
+                      months: int = 1, visits: int = None, amount: float = None):
     """
     payment_date — дата, когда клиент оплатил.
     Следующая оплата (end_date) считается как та же дата через `months` месяцев
     (05.10 -> 05.11 при months=1), а не просто "+30 дней".
+    amount — сумма оплаты, нужна для подсчёта дохода в статистике.
     """
     end = payment_date + relativedelta(months=months)
     with get_conn() as conn:
         conn.execute(
             """
             INSERT INTO subscriptions
-                (client_id, title, start_date, end_date, visits_total, visits_left, status)
-            VALUES (?, ?, ?, ?, ?, ?, 'active')
+                (client_id, title, start_date, end_date, visits_total, visits_left, status, amount)
+            VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
             """,
-            (client_id, title, payment_date.isoformat(), end.isoformat(), visits, visits),
+            (client_id, title, payment_date.isoformat(), end.isoformat(), visits, visits, amount),
         )
 
 
 def get_active_subscription(client_id: int):
+    """
+    Действующий абонемент: не только со статусом 'active', но и с датой
+    окончания в будущем. Без проверки даты истёкший абонемент показывался
+    клиенту как действующий.
+    """
+    now = datetime.now().isoformat()
     with get_conn() as conn:
         return conn.execute(
             """
             SELECT * FROM subscriptions
-            WHERE client_id = ? AND status = 'active'
+            WHERE client_id = ? AND status = 'active' AND end_date >= ?
             ORDER BY end_date DESC LIMIT 1
             """,
-            (client_id,),
+            (client_id, now),
         ).fetchone()
 
 

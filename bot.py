@@ -26,6 +26,7 @@ Telegram-бот для учёта абонементов борцовского 
 не оплатит новый абонемент.
 """
 import logging
+import time
 import os
 from datetime import datetime
 
@@ -47,6 +48,12 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()}
 WEBAPP_URL = os.getenv("WEBAPP_URL", "").rstrip("/")
+# Railway работает по UTC, поэтому часовой пояс зала задаём явно,
+# иначе напоминания уходят не в то время, а "сегодня" может съехать на день.
+TIMEZONE = os.getenv("TZ", "Asia/Tbilisi")
+REMINDER_HOUR = int(os.getenv("REMINDER_HOUR", "10"))
+# сколько дней после истечения продолжать ежедневные напоминания (0 = бессрочно)
+REMINDER_MAX_DAYS_OVERDUE = int(os.getenv("REMINDER_MAX_DAYS_OVERDUE", "14"))
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -414,6 +421,12 @@ async def remind_expiring_subscriptions(app: Application):
 
         should_notify = days_left == 3 or days_left == 0 or days_left < 0
 
+        # Не преследуем бесконечно тех, кто давно перестал ходить.
+        # REMINDER_MAX_DAYS_OVERDUE=0 — напоминать бессрочно.
+        if days_left < 0 and REMINDER_MAX_DAYS_OVERDUE > 0:
+            if abs(days_left) > REMINDER_MAX_DAYS_OVERDUE:
+                should_notify = False
+
         if not should_notify:
             continue
 
@@ -451,6 +464,13 @@ def main():
     if not BOT_TOKEN:
         raise RuntimeError("Заполните BOT_TOKEN в файле .env")
 
+    # чтобы datetime.now() считал по времени зала, а не по UTC сервера
+    os.environ.setdefault("TZ", TIMEZONE)
+    try:
+        time.tzset()
+    except AttributeError:
+        pass  # на Windows tzset отсутствует
+
     db.init_db()
     webapp.run_in_background()
 
@@ -468,11 +488,11 @@ def main():
     app.add_handler(CommandHandler("backup", backup))
     app.add_handler(CommandHandler("restore", restore))
 
-    scheduler = AsyncIOScheduler()
+    scheduler = AsyncIOScheduler(timezone=TIMEZONE)
     scheduler.add_job(
         remind_expiring_subscriptions,
         "cron",
-        hour=10,
+        hour=REMINDER_HOUR,
         minute=0,
         kwargs={"app": app},
     )

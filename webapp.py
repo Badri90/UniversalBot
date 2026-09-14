@@ -13,7 +13,7 @@ import hmac
 import json
 import os
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import parse_qsl
 
 import requests
@@ -113,12 +113,36 @@ def api_me():
             "visits_left": sub["visits_left"],
         }
 
+    # посещения за текущий месяц
+    today = datetime.now()
+    month_start = today.replace(day=1).strftime("%Y-%m-%d")
+    month_end = today.strftime("%Y-%m-%d")
+    visits_this_month = db.count_attendance(client["id"], month_start, month_end)
+    recent_visits = [
+        "-".join(reversed(d.split("-")))
+        for d in db.client_attendance_dates(client["id"], month_start, month_end)[:8]
+    ]
+
+    schedule = [{
+        "day_of_week": r["day_of_week"],
+        "start_time": r["start_time"],
+        "end_time": r["end_time"],
+        "title": r["title"],
+        "group_type": r["group_type"],
+    } for r in db.list_schedule(client["group_type"])]
+
     return jsonify({
         "registered": True,
         "client_id": client["id"],
         "full_name": client["full_name"],
         "group_type": client["group_type"],
+        "belt": client["belt"],
+        "stripes": client["stripes"],
+        "belt_updated": fmt_date(client["belt_updated"]) if client["belt_updated"] else None,
         "subscription": subscription,
+        "visits_this_month": visits_this_month,
+        "recent_visits": recent_visits,
+        "schedule": schedule,
         "announcement": db.get_announcement(),
     })
 
@@ -186,6 +210,8 @@ def api_admin_clients():
             "group_type": c["group_type"],
             "birth_date": c["birth_date"],
             "note": c["note"],
+            "belt": c["belt"],
+            "stripes": c["stripes"],
             "sub_title": c["sub_title"],
             "sub_end_date": end_date,
             "visits_left": c["visits_left"],
@@ -255,6 +281,11 @@ def api_admin_mark_payment():
     months = int(body.get("months", 1))
     visits = body.get("visits")
     visits = int(visits) if visits not in (None, "") else None
+    amount = body.get("amount")
+    try:
+        amount = float(amount) if amount not in (None, "") else None
+    except (TypeError, ValueError):
+        amount = None
 
     client = db.get_client_by_id(client_id)
     if not client:
@@ -265,7 +296,7 @@ def api_admin_mark_payment():
     except (ValueError, TypeError):
         return jsonify({"error": "bad_date"}), 400
 
-    db.add_subscription(client["id"], title, payment_date, months, visits)
+    db.add_subscription(client["id"], title, payment_date, months, visits, amount)
 
     from dateutil.relativedelta import relativedelta
     next_due = payment_date + relativedelta(months=months)
@@ -307,6 +338,12 @@ def api_freeze_request():
     client = db.get_client_by_telegram_id(user["id"])
     if not client:
         return jsonify({"error": "not_registered"}), 404
+
+    if not db.get_active_subscription(client["id"]):
+        return jsonify({"error": "no_active_subscription"}), 400
+
+    if db.has_pending_freeze_request(client["id"]):
+        return jsonify({"error": "already_pending"}), 409
 
     try:
         days = int(body.get("days"))
@@ -388,6 +425,9 @@ def api_activate_request():
     client = db.get_client_by_telegram_id(user["id"])
     if not client:
         return jsonify({"error": "not_registered"}), 404
+
+    if db.has_pending_activation_request(client["id"]):
+        return jsonify({"error": "already_pending"}), 409
 
     requested_date = (body.get("requested_date") or "").strip()
     try:
@@ -473,6 +513,199 @@ def api_admin_activation_decision():
             )
 
     return jsonify({"ok": True})
+
+
+# ---------------- API: расписание ----------------
+
+@flask_app.route("/api/admin/schedule", methods=["GET", "POST"])
+def api_admin_schedule():
+    if request.method == "GET":
+        user = validate_init_data(request.args.get("initData", ""))
+        if not require_admin(user):
+            return jsonify({"error": "forbidden"}), 403
+        rows = db.list_schedule()
+        return jsonify({"schedule": [{
+            "id": r["id"],
+            "day_of_week": r["day_of_week"],
+            "start_time": r["start_time"],
+            "end_time": r["end_time"],
+            "title": r["title"],
+            "group_type": r["group_type"],
+        } for r in rows]})
+
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    try:
+        day = int(body.get("day_of_week"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "bad_day"}), 400
+    if day < 0 or day > 6:
+        return jsonify({"error": "bad_day"}), 400
+
+    start_time = (body.get("start_time") or "").strip()
+    end_time = (body.get("end_time") or "").strip() or None
+    title = (body.get("title") or "").strip()
+    group_type = body.get("group_type") if body.get("group_type") in ("adult", "kids", "all") else "all"
+
+    if not start_time or not title:
+        return jsonify({"error": "bad_request"}), 400
+
+    entry_id = body.get("id")
+    if entry_id:
+        db.update_schedule_entry(entry_id, day, start_time, title, group_type, end_time)
+    else:
+        db.add_schedule_entry(day, start_time, title, group_type, end_time)
+    return jsonify({"ok": True})
+
+
+@flask_app.route("/api/admin/schedule_delete", methods=["POST"])
+def api_admin_schedule_delete():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+    entry_id = body.get("id")
+    if not entry_id:
+        return jsonify({"error": "bad_request"}), 400
+    db.delete_schedule_entry(entry_id)
+    return jsonify({"ok": True})
+
+
+# ---------------- API: посещаемость ----------------
+
+@flask_app.route("/api/admin/attendance")
+def api_admin_attendance():
+    user = validate_init_data(request.args.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    visit_date = request.args.get("date") or datetime.now().strftime("%Y-%m-%d")
+    group_type = request.args.get("group")
+    try:
+        datetime.strptime(visit_date, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "bad_date"}), 400
+
+    present = db.attendance_on_date(visit_date)
+    rows = db.list_clients_with_subscription(group_type)
+
+    month_start = visit_date[:8] + "01"
+    counts = db.attendance_counts_for_period(month_start, visit_date)
+
+    return jsonify({
+        "date": visit_date,
+        "clients": [{
+            "id": c["id"],
+            "full_name": c["full_name"],
+            "group_type": c["group_type"],
+            "present": c["id"] in present,
+            "month_visits": counts.get(c["id"], 0),
+        } for c in rows],
+    })
+
+
+@flask_app.route("/api/admin/attendance_toggle", methods=["POST"])
+def api_admin_attendance_toggle():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    client_id = body.get("client_id")
+    visit_date = (body.get("date") or "").strip()
+    present = bool(body.get("present"))
+    try:
+        datetime.strptime(visit_date, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "bad_date"}), 400
+    if not client_id:
+        return jsonify({"error": "bad_request"}), 400
+
+    if present:
+        db.mark_attendance(client_id, visit_date)
+    else:
+        db.unmark_attendance(client_id, visit_date)
+    return jsonify({"ok": True})
+
+
+# ---------------- API: пояса ----------------
+
+@flask_app.route("/api/admin/set_belt", methods=["POST"])
+def api_admin_set_belt():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    client_id = body.get("client_id")
+    belt = (body.get("belt") or "").strip() or None
+    try:
+        stripes = int(body.get("stripes", 0))
+    except (TypeError, ValueError):
+        stripes = 0
+    stripes = max(0, min(4, stripes))
+
+    if not client_id:
+        return jsonify({"error": "bad_request"}), 400
+
+    client = db.get_client_by_id(client_id)
+    if not client:
+        return jsonify({"error": "client_not_found"}), 404
+
+    previous = (client["belt"], client["stripes"])
+    db.update_belt(client_id, belt, stripes)
+
+    # поздравляем клиента, если пояс или число полосок изменились
+    if belt and previous != (belt, stripes):
+        notify_telegram(
+            client["telegram_id"],
+            f"Поздравляем с аттестацией! Ваш пояс: {belt_label(belt)}"
+            + (f", полосок: {stripes}" if stripes else "") + ".",
+        )
+
+    return jsonify({"ok": True})
+
+
+BELT_LABELS = {
+    "white": "белый", "grey": "серый", "yellow": "жёлтый", "orange": "оранжевый",
+    "green": "зелёный", "blue": "синий", "purple": "фиолетовый",
+    "brown": "коричневый", "black": "чёрный",
+}
+
+
+def belt_label(belt: str) -> str:
+    return BELT_LABELS.get(belt, belt)
+
+
+# ---------------- API: статистика ----------------
+
+@flask_app.route("/api/admin/stats")
+def api_admin_stats():
+    user = validate_init_data(request.args.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    month = request.args.get("month")  # 'YYYY-MM'
+    now = datetime.now()
+    if month:
+        try:
+            base = datetime.strptime(month + "-01", "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"error": "bad_month"}), 400
+    else:
+        base = now.replace(day=1)
+
+    from dateutil.relativedelta import relativedelta
+    start = base.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + relativedelta(months=1) - timedelta(seconds=1)
+
+    stats = db.get_stats(start.isoformat(), end.isoformat())
+    stats["month"] = start.strftime("%m.%Y")
+    stats["month_key"] = start.strftime("%Y-%m")
+    return jsonify(stats)
 
 
 def run_in_background():
