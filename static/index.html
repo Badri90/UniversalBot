@@ -131,6 +131,7 @@
   .status-active { background: rgba(245,243,238,0.1); color: var(--bone); }
   .status-overdue { background: rgba(208,31,31,0.18); color: var(--red-bright); }
   .status-none { background: rgba(140,140,134,0.18); color: var(--ash); }
+  .status-unlimited { background: rgba(163,21,21,0.22); color: var(--red-bright); }
   .empty {
     text-align: center;
     color: var(--ash);
@@ -541,6 +542,8 @@
       validUntil: "Действует до",
       visitsLeft: "Осталось посещений",
       noSubscription: "Нет активного абонемента",
+      unlimitedSub: "Безлимитный",
+      unlimitedNote: "Срок не ограничен",
       freezeBtn: "Заморозить абонемент",
       activateBtn: "Активировать абонемент",
       registration: "Регистрация",
@@ -594,6 +597,8 @@
       validUntil: "Valid until",
       visitsLeft: "Visits left",
       noSubscription: "No active subscription",
+      unlimitedSub: "Unlimited",
+      unlimitedNote: "No expiry date",
       freezeBtn: "Freeze subscription",
       activateBtn: "Activate subscription",
       registration: "Registration",
@@ -747,13 +752,23 @@
           <div class="value">${s.visits_left} ${t("of")} ${s.visits_total}</div>
         `;
       }
-      subHtml = `
-        <div class="label">${t("subscription")}</div>
-        <div class="value">${esc(s.title)}</div>
-        <div class="label">${t("validUntil")}</div>
-        <div class="value">${s.end_date}</div>
-        ${visitsHtml}
-      `;
+      if (s.unlimited) {
+        subHtml = `
+          <div class="label">${t("subscription")}</div>
+          <div class="value">${esc(s.title)}</div>
+          <div><span class="status-badge status-unlimited">${t("unlimitedSub")}</span></div>
+          <div class="sched-tag" style="margin-top:6px;">${t("unlimitedNote")}</div>
+          ${visitsHtml}
+        `;
+      } else {
+        subHtml = `
+          <div class="label">${t("subscription")}</div>
+          <div class="value">${esc(s.title)}</div>
+          <div class="label">${t("validUntil")}</div>
+          <div class="value">${s.end_date}</div>
+          ${visitsHtml}
+        `;
+      }
     } else {
       subHtml = `<div class="label">${t("subscription")}</div>
         <div class="status-badge status-none">${t("noSubscription")}</div>`;
@@ -763,9 +778,12 @@
       ? `<span class="group-tag">Kids</span>`
       : `<span class="group-tag">Adult</span>`;
 
-    const actionBtn = data.subscription
-      ? `<button class="secondary" onclick="openFreezeModal()">${t("freezeBtn")}</button>`
-      : `<button class="outline-full" onclick="openActivateModal()">${t("activateBtn")}</button>`;
+    let actionBtn = "";
+    if (!data.subscription) {
+      actionBtn = `<button class="outline-full" onclick="openActivateModal()">${t("activateBtn")}</button>`;
+    } else if (!data.subscription.unlimited) {
+      actionBtn = `<button class="secondary" onclick="openFreezeModal()">${t("freezeBtn")}</button>`;
+    }
 
     content.innerHTML = `
       <div class="card id-card">
