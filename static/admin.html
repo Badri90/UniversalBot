@@ -38,8 +38,14 @@
     gap: 22px;
     margin-bottom: 18px;
     border-bottom: 1px solid var(--paper-line);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
+  .tabs::-webkit-scrollbar { display: none; }
   .tab {
+    white-space: nowrap;
+    flex-shrink: 0;
     padding: 4px 0 12px;
     color: var(--ash);
     font-weight: 600;
@@ -256,9 +262,14 @@
     display: flex;
     gap: 6px;
     margin-bottom: 14px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
+  .subtabs::-webkit-scrollbar { display: none; }
   .subtab {
-    flex: 1;
+    flex: 1 0 auto;
+    white-space: nowrap;
     text-align: center;
     padding: 8px;
     border-radius: 3px;
@@ -405,8 +416,8 @@
     <input id="mMonths" type="number" value="1" min="1">
     <div class="label">Посещений (необязательно)</div>
     <input id="mVisits" type="number" placeholder="оставить пустым если безлимит">
-    <div class="label">Сумма оплаты (для статистики)</div>
-    <input id="mAmount" type="number" step="any" placeholder="например 150">
+    <div class="label">Сумма оплаты, лари</div>
+    <input id="mAmount" type="number" step="any" value="130">
     <button class="primary" onclick="submitPayment()">Сохранить оплату</button>
   </div>
 </div>
@@ -622,6 +633,9 @@
               <button class="small-secondary" onclick="openBeltModal(${c.id})">Пояс</button>
             </div>
             <div class="row-buttons">
+              <button class="small-secondary" style="width:100%;" onclick="viewClientCabinet(${c.id})">Открыть кабинет клиента</button>
+            </div>
+            <div class="row-buttons">
               <button class="small-danger" style="width:100%;" onclick="deleteClient(${c.id})">Удалить клиента</button>
             </div>
             <div class="note-label">Заметка (видна только вам)</div>
@@ -659,6 +673,10 @@
     }
   }
 
+  function viewClientCabinet(clientId) {
+    location.href = "/?as=" + clientId;
+  }
+
   function clientName(clientId) {
     const c = allClients.find(x => x.id === clientId);
     return c ? c.full_name : "";
@@ -668,7 +686,7 @@
     currentClientId = clientId;
     document.getElementById("modalClientName").textContent = "Оплата: " + clientName(clientId);
     document.getElementById("mDate").value = new Date().toISOString().slice(0, 10);
-    document.getElementById("mAmount").value = "";
+    document.getElementById("mAmount").value = "130";
     document.getElementById("modalBg").style.display = "flex";
   }
   document.getElementById("modalBg").addEventListener("click", (e) => {
