@@ -241,6 +241,16 @@
     font-weight: 600;
   }
   .label { color: var(--ash); font-size: 13px; margin-top: 12px; }
+  .check-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+    font-size: 14px;
+    color: var(--bone);
+  }
+  .check-line input { width: 20px; height: 20px; margin: 0; flex-shrink: 0; accent-color: var(--red); }
+  .status-unlimited { background: rgba(163,21,21,0.22); color: var(--red-bright); }
   .modal-bg {
     display: none;
     position: fixed; inset: 0;
@@ -382,6 +392,7 @@
     <div class="subtab" id="bucketActive" onclick="setBucket('active')">Активные</div>
     <div class="subtab" id="bucketExpiring" onclick="setBucket('expiring')">Истекают</div>
     <div class="subtab" id="bucketOverdue" onclick="setBucket('overdue')">Истекли</div>
+    <div class="subtab" id="bucketUnlimited" onclick="setBucket('unlimited')">Безлимит</div>
   </div>
   <input id="searchInput" placeholder="Поиск по имени или фамилии" oninput="renderClients()" style="margin-bottom:10px;">
   <div class="subtabs">
@@ -418,6 +429,10 @@
     <input id="mVisits" type="number" placeholder="оставить пустым если безлимит">
     <div class="label">Сумма оплаты, лари</div>
     <input id="mAmount" type="number" step="any" value="130">
+    <label class="check-line">
+      <input id="mUnlimited" type="checkbox" onchange="toggleUnlimited()">
+      <span>Безлимитный (особые условия, не в статистике)</span>
+    </label>
     <button class="primary" onclick="submitPayment()">Сохранить оплату</button>
   </div>
 </div>
@@ -538,6 +553,7 @@
     document.getElementById("bucketActive").classList.toggle("active", bucket === "active");
     document.getElementById("bucketExpiring").classList.toggle("active", bucket === "expiring");
     document.getElementById("bucketOverdue").classList.toggle("active", bucket === "overdue");
+    document.getElementById("bucketUnlimited").classList.toggle("active", bucket === "unlimited");
     renderClients();
   }
 
@@ -601,7 +617,8 @@
     view.innerHTML = list.map(c => {
       let badgeText = "Нет абонемента";
       let badgeClass = "status-none";
-      if (c.status === "active") { badgeText = "До " + c.sub_end_date; badgeClass = "status-active"; }
+      if (c.status === "unlimited") { badgeText = "Безлимитный"; badgeClass = "status-unlimited"; }
+      else if (c.status === "active") { badgeText = "До " + c.sub_end_date; badgeClass = "status-active"; }
       else if (c.status === "expiring") { badgeText = "Истекает " + c.sub_end_date; badgeClass = "status-expiring"; }
       else if (c.status === "overdue") { badgeText = "Просрочен: " + c.sub_end_date; badgeClass = "status-overdue"; }
 
@@ -620,7 +637,7 @@
           <div class="card-header" onclick="toggleExpand(${c.id})">
             <div class="card-header-text">
               <div class="client-name">${esc(c.full_name)}</div>
-              <div class="client-sub">${c.sub_end_date ? esc(c.sub_end_date) : "нет абонемента"}</div>
+              <div class="client-sub">${c.status === "unlimited" ? "безлимитный" : (c.sub_end_date ? esc(c.sub_end_date) : "нет абонемента")}</div>
             </div>
             <div class="expand-arrow ${isOpen ? 'open' : ''}">v</div>
           </div>
@@ -677,6 +694,13 @@
     location.href = "/?as=" + clientId;
   }
 
+  function toggleUnlimited() {
+    const on = document.getElementById("mUnlimited").checked;
+    const amount = document.getElementById("mAmount");
+    amount.disabled = on;
+    amount.style.opacity = on ? "0.4" : "1";
+  }
+
   function clientName(clientId) {
     const c = allClients.find(x => x.id === clientId);
     return c ? c.full_name : "";
@@ -687,6 +711,8 @@
     document.getElementById("modalClientName").textContent = "Оплата: " + clientName(clientId);
     document.getElementById("mDate").value = new Date().toISOString().slice(0, 10);
     document.getElementById("mAmount").value = "130";
+    document.getElementById("mUnlimited").checked = false;
+    toggleUnlimited();
     document.getElementById("modalBg").style.display = "flex";
   }
   document.getElementById("modalBg").addEventListener("click", (e) => {
@@ -743,6 +769,7 @@
       months: document.getElementById("mMonths").value || 1,
       visits: document.getElementById("mVisits").value,
       amount: document.getElementById("mAmount").value,
+      unlimited: document.getElementById("mUnlimited").checked,
     };
     const res = await fetch("/api/admin/mark_payment", {
       method: "POST",
@@ -1133,6 +1160,7 @@
         <div class="stat-box"><div class="n">${s.payments}</div><div class="k">оплат за месяц</div></div>
         <div class="stat-box"><div class="n">${s.active_subscriptions}</div><div class="k">активных абонементов</div></div>
         <div class="stat-box"><div class="n">${s.without_subscription}</div><div class="k">без абонемента</div></div>
+        <div class="stat-box"><div class="n">${s.unlimited_clients}</div><div class="k">на особых условиях</div></div>
         <div class="stat-box"><div class="n">${s.new_clients}</div><div class="k">новых за месяц</div></div>
         <div class="stat-box"><div class="n">${s.visits}</div><div class="k">посещений за месяц</div></div>
         <div class="stat-box"><div class="n">${s.adults}</div><div class="k">взрослых всего</div></div>
