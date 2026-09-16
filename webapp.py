@@ -70,6 +70,26 @@ def fmt_date(iso_str: str) -> str:
     return datetime.fromisoformat(iso_str).strftime("%d.%m.%Y")
 
 
+def resolve_client(user, requested_id=None):
+    """
+    Определяет, с какой карточкой работаем. Аккаунт может вести несколько
+    карточек (родитель и двое детей), поэтому клиент указывает нужную явно —
+    но только из своих. Админ может открыть любую.
+    """
+    if requested_id:
+        try:
+            requested_id = int(requested_id)
+        except (TypeError, ValueError):
+            return db.get_client_by_telegram_id(user["id"]), False
+        if db.client_belongs_to(requested_id, user["id"]):
+            return db.get_client_by_id(requested_id), False
+        if require_admin(user):
+            return db.get_client_by_id(requested_id), True
+        # чужая карточка: молча возвращаем собственную, ничего не раскрывая
+        return db.get_client_by_telegram_id(user["id"]), False
+    return db.get_client_by_telegram_id(user["id"]), False
+
+
 def notify_telegram(chat_id: int, text: str):
     try:
         requests.post(
@@ -102,17 +122,17 @@ def api_me():
     if not user:
         return jsonify({"error": "auth_failed"}), 401
 
-    # админ может посмотреть кабинет конкретного клиента глазами клиента
+    # админ открывает чужой кабинет через as=, клиент переключает свои через profile=
     view_as = request.args.get("as")
-    viewing_as_admin = False
-    if view_as and require_admin(user):
-        client = db.get_client_by_id(int(view_as))
-        viewing_as_admin = True
-    else:
-        client = db.get_client_by_telegram_id(user["id"])
+    profile_id = request.args.get("profile")
+    client, viewing_as_admin = resolve_client(user, view_as or profile_id)
+
+    profiles = [{"id": p["id"], "full_name": p["full_name"], "group_type": p["group_type"],
+                 "archived": bool(p["archived"])}
+                for p in db.list_clients_by_telegram_id(user["id"], include_archived=True)]
 
     if not client:
-        return jsonify({"registered": False})
+        return jsonify({"registered": False, "profiles": profiles})
 
     sub = db.get_active_subscription(client["id"])
     subscription = None
@@ -152,6 +172,9 @@ def api_me():
         "schedule": schedule,
         "announcement": db.get_announcement(),
         "viewing_as_admin": viewing_as_admin,
+        "archived": bool(client["archived"]),
+        "pending_approval": not client["approved"],
+        "profiles": profiles,
     })
 
 
@@ -162,11 +185,7 @@ def api_my_attendance():
     if not user:
         return jsonify({"error": "auth_failed"}), 401
 
-    view_as = request.args.get("as")
-    if view_as and require_admin(user):
-        client = db.get_client_by_id(int(view_as))
-    else:
-        client = db.get_client_by_telegram_id(user["id"])
+    client, _ = resolve_client(user, request.args.get("as") or request.args.get("profile"))
     if not client:
         return jsonify({"error": "not_registered"}), 404
 
@@ -208,7 +227,14 @@ def api_register():
     if len(full_name) < 2:
         return jsonify({"error": "bad_name"}), 400
 
-    db.upsert_client(user["id"], full_name, group_type, birth_date)
+    # каждая регистрация создаёт отдельную карточку: родитель может
+    # завести профиль на себя и на каждого ребёнка
+    new_id = db.create_client(user["id"], full_name, group_type, birth_date)
+
+    moderation = db.get_setting("moderation", "1") == "1"
+    if moderation:
+        with db.get_conn() as conn:
+            conn.execute("UPDATE clients SET approved = 0 WHERE id = ?", (new_id,))
 
     for admin_id in ADMIN_IDS:
         notify_telegram(
@@ -217,7 +243,7 @@ def api_register():
             f"({'Kids' if group_type == 'kids' else 'Adult'})",
         )
 
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "client_id": new_id, "pending": moderation})
 
 
 # ---------------- API: админ ----------------
@@ -345,7 +371,7 @@ def api_admin_mark_payment():
         return jsonify({"error": "forbidden"}), 403
 
     client_id = body.get("client_id")
-    title = body.get("title", "Абонемент")
+    title = (body.get("title") or "").strip()
     payment_date_str = body.get("payment_date")
     months = int(body.get("months", 1))
     visits = body.get("visits")
@@ -374,17 +400,18 @@ def api_admin_mark_payment():
     db.add_subscription(client["id"], title, payment_date, months, visits, amount, unlimited)
     db.resolve_pending_activation_requests(client["id"])
 
+    label = f" «{title}»" if title else ""
     if unlimited:
         notify_telegram(
             client["telegram_id"],
-            f"Вам оформлен безлимитный абонемент «{title}». Срок не ограничен.",
+            f"Вам оформлен безлимитный абонемент{label}. Срок не ограничен.",
         )
     else:
         from dateutil.relativedelta import relativedelta
         next_due = payment_date + relativedelta(months=months)
         notify_telegram(
             client["telegram_id"],
-            f"Оплата абонемента «{title}» зафиксирована. "
+            f"Оплата абонемента{label} зафиксирована. "
             f"Следующая оплата: {next_due.strftime('%d.%m.%Y')}.",
         )
 
@@ -417,7 +444,7 @@ def api_freeze_request():
     if not user:
         return jsonify({"error": "auth_failed"}), 401
 
-    client = db.get_client_by_telegram_id(user["id"])
+    client, _ = resolve_client(user, body.get("client_id"))
     if not client:
         return jsonify({"error": "not_registered"}), 404
 
@@ -500,6 +527,167 @@ def api_admin_freeze_decision():
     return jsonify({"ok": True})
 
 
+# ---------------- API: модерация регистраций ----------------
+
+@flask_app.route("/api/admin/pending_clients")
+def api_admin_pending_clients():
+    user = validate_init_data(request.args.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+    rows = db.list_pending_clients()
+    return jsonify({
+        "moderation": db.get_setting("moderation", "1") == "1",
+        "clients": [{
+            "id": r["id"],
+            "full_name": r["full_name"],
+            "group_type": r["group_type"],
+            "birth_date": r["birth_date"],
+            "created_at": fmt_date(r["created_at"]),
+        } for r in rows],
+    })
+
+
+@flask_app.route("/api/admin/approve_client", methods=["POST"])
+def api_admin_approve_client():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    client_id = body.get("client_id")
+    approve = bool(body.get("approve", True))
+    if not client_id:
+        return jsonify({"error": "bad_request"}), 400
+
+    client = db.get_client_by_id(client_id)
+    if not client:
+        return jsonify({"error": "client_not_found"}), 404
+
+    if approve:
+        db.approve_client(client_id)
+        notify_telegram(
+            client["telegram_id"],
+            f"Регистрация «{client['full_name']}» подтверждена тренером. "
+            "Кабинет доступен.",
+        )
+    else:
+        db.delete_client(client_id)
+        notify_telegram(
+            client["telegram_id"],
+            f"Регистрация «{client['full_name']}» отклонена. "
+            "Если это ошибка, свяжитесь с тренером.",
+        )
+    return jsonify({"ok": True})
+
+
+@flask_app.route("/api/admin/moderation", methods=["POST"])
+def api_admin_moderation():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+    db.set_setting("moderation", "1" if body.get("enabled") else "0")
+    return jsonify({"ok": True})
+
+
+@flask_app.route("/api/admin/set_group", methods=["POST"])
+def api_admin_set_group():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    client_id = body.get("client_id")
+    group_type = body.get("group_type")
+    if not client_id or group_type not in ("adult", "kids"):
+        return jsonify({"error": "bad_request"}), 400
+
+    client = db.get_client_by_id(client_id)
+    if not client:
+        return jsonify({"error": "client_not_found"}), 404
+
+    # во взрослую группу — не раньше 16 лет
+    if group_type == "adult" and client["group_type"] == "kids":
+        if not client["birth_date"]:
+            return jsonify({"error": "no_birth_date"}), 400
+        born = datetime.strptime(client["birth_date"], "%Y-%m-%d")
+        now = datetime.now()
+        age = now.year - born.year - ((now.month, now.day) < (born.month, born.day))
+        if age < 16:
+            return jsonify({"error": "too_young", "age": age}), 400
+
+    # детские и взрослые пояса — разные системы, поэтому пояс сбрасывается
+    db.set_client_group(client_id, group_type, reset_belt=True)
+    return jsonify({"ok": True})
+
+
+# ---------------- API: приостановка членства ----------------
+
+@flask_app.route("/api/pause_request", methods=["POST"])
+def api_pause_request():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not user:
+        return jsonify({"error": "auth_failed"}), 401
+
+    client, _ = resolve_client(user, body.get("client_id"))
+    if not client:
+        return jsonify({"error": "not_registered"}), 404
+    if db.has_pending_pause_request(client["id"]):
+        return jsonify({"error": "already_pending"}), 409
+
+    action = "resume" if client["archived"] else "pause"
+    db.create_pause_request(client["id"], action)
+    word = "возобновление" if action == "resume" else "приостановку"
+    for admin_id in ADMIN_IDS:
+        notify_telegram(
+            admin_id,
+            f"Заявка на {word} членства: {client['full_name']}.\n"
+            f"Откройте /admin_app, чтобы одобрить или отклонить.",
+        )
+    return jsonify({"ok": True, "action": action})
+
+
+@flask_app.route("/api/admin/pause_requests")
+def api_admin_pause_requests():
+    user = validate_init_data(request.args.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+    rows = db.list_pending_pause_requests()
+    return jsonify({"requests": [{
+        "id": r["id"],
+        "full_name": r["full_name"],
+        "action": r["action"],
+        "created_at": fmt_date(r["created_at"]),
+    } for r in rows]})
+
+
+@flask_app.route("/api/admin/pause_decision", methods=["POST"])
+def api_admin_pause_decision():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    req = db.decide_pause_request(body.get("request_id"), bool(body.get("approve")))
+    if not req:
+        return jsonify({"error": "not_found_or_decided"}), 404
+
+    client = db.get_client_by_id(req["client_id"])
+    if client:
+        approved = bool(body.get("approve"))
+        if approved and req["action"] == "pause":
+            text = (f"Членство «{client['full_name']}» приостановлено. "
+                    "Когда вернётесь — откройте кабинет и нажмите «Возобновить».")
+        elif approved:
+            text = f"С возвращением! Членство «{client['full_name']}» снова активно."
+        else:
+            text = (f"Заявка по «{client['full_name']}» отклонена. "
+                    "Свяжитесь с тренером для уточнения.")
+        notify_telegram(client["telegram_id"], text)
+    return jsonify({"ok": True})
+
+
 # ---------------- API: активация абонемента ----------------
 
 @flask_app.route("/api/activate_request", methods=["POST"])
@@ -509,7 +697,7 @@ def api_activate_request():
     if not user:
         return jsonify({"error": "auth_failed"}), 401
 
-    client = db.get_client_by_telegram_id(user["id"])
+    client, _ = resolve_client(user, body.get("client_id"))
     if not client:
         return jsonify({"error": "not_registered"}), 404
 
@@ -680,8 +868,17 @@ def api_admin_attendance():
     present = db.attendance_on_date(visit_date)
     rows = db.list_clients_with_subscription(group_type)
 
+    # какие группы занимаются в этот день недели — чтобы поднять их наверх
+    weekday = datetime.strptime(visit_date, "%Y-%m-%d").weekday()
+    scheduled = {r["group_type"] for r in db.list_schedule() if r["day_of_week"] == weekday}
+    if "all" in scheduled:
+        scheduled = {"adult", "kids"}
+
+    # счётчик показываем за весь месяц, а не только до выбранной даты —
+    # иначе при отметке задним числом цифры выглядят неверно
     month_start = visit_date[:8] + "01"
-    counts = db.attendance_counts_for_period(month_start, visit_date)
+    month_end = visit_date[:8] + "31"
+    counts = db.attendance_counts_for_period(month_start, month_end)
 
     return jsonify({
         "date": visit_date,
@@ -691,7 +888,9 @@ def api_admin_attendance():
             "group_type": c["group_type"],
             "present": c["id"] in present,
             "month_visits": counts.get(c["id"], 0),
+            "scheduled_today": c["group_type"] in scheduled,
         } for c in rows],
+        "has_schedule": bool(scheduled),
     })
 
 

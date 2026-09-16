@@ -32,13 +32,14 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS clients (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                telegram_id INTEGER UNIQUE NOT NULL,
+                telegram_id INTEGER NOT NULL,
                 full_name TEXT NOT NULL,
                 phone TEXT,
                 group_type TEXT NOT NULL DEFAULT 'adult',
                 birth_date TEXT,
                 note TEXT,
                 archived INTEGER NOT NULL DEFAULT 0,
+                approved INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL
             );
 
@@ -46,6 +47,15 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
                 days_requested INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                decided_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS pause_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+                action TEXT NOT NULL DEFAULT 'pause',
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_at TEXT NOT NULL,
                 decided_at TEXT
@@ -95,6 +105,11 @@ def init_db():
                 updated_at TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS schedule (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 day_of_week INTEGER NOT NULL,
@@ -130,6 +145,52 @@ def init_db():
             conn.execute("ALTER TABLE clients ADD COLUMN belt_updated TEXT")
         if "archived" not in cols:
             conn.execute("ALTER TABLE clients ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+        if "approved" not in cols:
+            # у всех, кто зарегистрировался до включения модерации, доступ остаётся
+            conn.execute("ALTER TABLE clients ADD COLUMN approved INTEGER NOT NULL DEFAULT 1")
+
+        # Раньше на telegram_id стояло UNIQUE — один аккаунт мог держать только
+        # одну карточку. Родителю двоих детей этого не хватает, поэтому
+        # пересобираем таблицу без этого ограничения (id сохраняются,
+        # поэтому связи с оплатами и посещениями не рвутся).
+        has_unique = any(
+            row["origin"] == "u"
+            for row in conn.execute("PRAGMA index_list(clients)")
+        )
+        if has_unique:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.executescript(
+                """
+                CREATE TABLE clients_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    telegram_id INTEGER NOT NULL,
+                    full_name TEXT NOT NULL,
+                    phone TEXT,
+                    group_type TEXT NOT NULL DEFAULT 'adult',
+                    birth_date TEXT,
+                    note TEXT,
+                    belt TEXT,
+                    stripes INTEGER NOT NULL DEFAULT 0,
+                    belt_updated TEXT,
+                    archived INTEGER NOT NULL DEFAULT 0,
+                    approved INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL
+                );
+                INSERT INTO clients_new
+                    (id, telegram_id, full_name, phone, group_type, birth_date,
+                     note, belt, stripes, belt_updated, archived, approved, created_at)
+                SELECT id, telegram_id, full_name, phone, group_type, birth_date,
+                       note, belt, stripes, belt_updated, archived, 1, created_at
+                FROM clients;
+                DROP TABLE clients;
+                ALTER TABLE clients_new RENAME TO clients;
+                """
+            )
+            conn.execute("PRAGMA foreign_keys = ON")
+
+        pause_cols = [row["name"] for row in conn.execute("PRAGMA table_info(pause_requests)")]
+        if pause_cols and "action" not in pause_cols:
+            conn.execute("ALTER TABLE pause_requests ADD COLUMN action TEXT NOT NULL DEFAULT 'pause'")
 
         sub_cols = [row["name"] for row in conn.execute("PRAGMA table_info(subscriptions)")]
         if "last_reminder_date" not in sub_cols:
@@ -142,27 +203,66 @@ def init_db():
 
 # ---------- Клиенты ----------
 
-def upsert_client(telegram_id: int, full_name: str, group_type: str = "adult",
-                   birth_date: str = None, phone: str = None):
+def create_client(telegram_id: int, full_name: str, group_type: str = "adult",
+                   birth_date: str = None, phone: str = None) -> int:
+    """
+    Создаёт новую карточку. Один Telegram-аккаунт может держать несколько
+    карточек — например, родитель заводит профили на двоих детей.
+    """
     with get_conn() as conn:
-        conn.execute(
+        cur = conn.execute(
             """
             INSERT INTO clients (telegram_id, full_name, phone, group_type, birth_date, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(telegram_id) DO UPDATE SET
-                full_name=excluded.full_name, group_type=excluded.group_type,
-                birth_date=excluded.birth_date
             """,
             (telegram_id, full_name, phone, group_type, birth_date, datetime.now().isoformat()),
         )
+        return cur.lastrowid
+
+
+def upsert_client(telegram_id: int, full_name: str, group_type: str = "adult",
+                   birth_date: str = None, phone: str = None):
+    """Совместимость: обновляет первую карточку аккаунта либо создаёт новую."""
+    existing = get_client_by_telegram_id(telegram_id)
+    if existing:
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE clients SET full_name = ?, group_type = ?, birth_date = ? WHERE id = ?",
+                (full_name, group_type, birth_date, existing["id"]),
+            )
+        return existing["id"]
+    return create_client(telegram_id, full_name, group_type, birth_date, phone)
 
 
 def get_client_by_telegram_id(telegram_id: int):
+    """Первая активная карточка аккаунта (для приветствия и совместимости)."""
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT * FROM clients WHERE telegram_id = ?
+            ORDER BY archived, id LIMIT 1
+            """,
+            (telegram_id,),
+        ).fetchone()
+
+
+def list_clients_by_telegram_id(telegram_id: int, include_archived: bool = False):
+    """Все карточки аккаунта — родитель может вести несколько детей."""
+    query = "SELECT * FROM clients WHERE telegram_id = ?"
+    if not include_archived:
+        query += " AND archived = 0"
+    query += " ORDER BY id"
+    with get_conn() as conn:
+        return conn.execute(query, (telegram_id,)).fetchall()
+
+
+def client_belongs_to(client_id: int, telegram_id: int) -> bool:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT * FROM clients WHERE telegram_id = ?", (telegram_id,)
+            "SELECT 1 FROM clients WHERE id = ? AND telegram_id = ?",
+            (client_id, telegram_id),
         ).fetchone()
-        return row
+        return row is not None
 
 
 def get_client_by_id(client_id: int):
@@ -170,6 +270,64 @@ def get_client_by_id(client_id: int):
         return conn.execute(
             "SELECT * FROM clients WHERE id = ?", (client_id,)
         ).fetchone()
+
+
+# ---------- Настройки ----------
+
+def get_setting(key: str, default: str = "") -> str:
+    with get_conn() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+
+
+def set_setting(key: str, value: str):
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, value),
+        )
+
+
+# ---------- Модерация регистраций ----------
+
+def list_pending_clients():
+    """Новые регистрации, ожидающие подтверждения тренера."""
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT * FROM clients WHERE approved = 0 AND archived = 0
+            ORDER BY created_at
+            """
+        ).fetchall()
+
+
+def approve_client(client_id: int):
+    with get_conn() as conn:
+        conn.execute("UPDATE clients SET approved = 1 WHERE id = ?", (client_id,))
+
+
+def set_client_group(client_id: int, group_type: str, reset_belt: bool = False):
+    """
+    Перевод между детской и взрослой группой. Детские и взрослые пояса —
+    разные системы, поэтому при переходе пояс обычно сбрасывается,
+    чтобы тренер присвоил новый.
+    """
+    with get_conn() as conn:
+        if reset_belt:
+            conn.execute(
+                """
+                UPDATE clients SET group_type = ?, belt = NULL, stripes = 0, belt_updated = NULL
+                WHERE id = ?
+                """,
+                (group_type, client_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE clients SET group_type = ? WHERE id = ?", (group_type, client_id)
+            )
 
 
 # ---------- Объявления ----------
@@ -232,7 +390,7 @@ def list_clients_with_subscription(group_type: str = None, archived: bool = Fals
             ORDER BY end_date DESC LIMIT 1
         )
     """
-    query += " WHERE c.archived = ?"
+    query += " WHERE c.archived = ? AND c.approved = 1"
     params = [1 if archived else 0]
     if group_type:
         query += " AND c.group_type = ?"
@@ -313,6 +471,61 @@ def decide_freeze_request(request_id: int, approve: bool):
                     "UPDATE subscriptions SET end_date = ? WHERE id = ?",
                     (new_end.isoformat(), sub["id"]),
                 )
+    return req
+
+
+# ---------- Приостановка членства ----------
+
+def create_pause_request(client_id: int, action: str = "pause"):
+    """action: 'pause' — уйти в архив, 'resume' — вернуться из архива."""
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO pause_requests (client_id, action, status, created_at)
+            VALUES (?, ?, 'pending', ?)
+            """,
+            (client_id, action, datetime.now().isoformat()),
+        )
+
+
+def has_pending_pause_request(client_id: int) -> bool:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT 1 FROM pause_requests WHERE client_id = ? AND status = 'pending' LIMIT 1",
+            (client_id,),
+        ).fetchone() is not None
+
+
+def list_pending_pause_requests():
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT p.*, c.full_name, c.telegram_id FROM pause_requests p
+            JOIN clients c ON c.id = p.client_id
+            WHERE p.status = 'pending'
+            ORDER BY p.created_at
+            """
+        ).fetchall()
+
+
+def decide_pause_request(request_id: int, approve: bool):
+    """Одобрение переносит карточку в архив — членство приостановлено."""
+    with get_conn() as conn:
+        req = conn.execute(
+            "SELECT * FROM pause_requests WHERE id = ?", (request_id,)
+        ).fetchone()
+        if not req or req["status"] != "pending":
+            return None
+        conn.execute(
+            "UPDATE pause_requests SET status = ?, decided_at = ? WHERE id = ?",
+            ("approved" if approve else "rejected", datetime.now().isoformat(), request_id),
+        )
+        if approve:
+            archived = 1 if req["action"] == "pause" else 0
+            conn.execute(
+                "UPDATE clients SET archived = ? WHERE id = ?",
+                (archived, req["client_id"]),
+            )
     return req
 
 
@@ -418,7 +631,7 @@ def decide_activation_request(request_id: int, approve: bool, months: int = 1,
                          visits_left, status, amount)
                     VALUES (?, ?, ?, ?, NULL, NULL, 'active', ?)
                     """,
-                    (req["client_id"], "Абонемент", start.isoformat(), end.isoformat(), amount),
+                    (req["client_id"], "", start.isoformat(), end.isoformat(), amount),
                 )
                 created = True
 
@@ -562,13 +775,13 @@ def get_stats(month_start: str, month_end: str):
     with get_conn() as conn:
         # архивные клиенты в текущих показателях не участвуют
         total = conn.execute(
-            "SELECT COUNT(*) AS n FROM clients WHERE archived = 0"
+            "SELECT COUNT(*) AS n FROM clients WHERE archived = 0 AND approved = 1"
         ).fetchone()["n"]
         adults = conn.execute(
-            "SELECT COUNT(*) AS n FROM clients WHERE group_type = 'adult' AND archived = 0"
+            "SELECT COUNT(*) AS n FROM clients WHERE group_type = 'adult' AND archived = 0 AND approved = 1"
         ).fetchone()["n"]
         kids = conn.execute(
-            "SELECT COUNT(*) AS n FROM clients WHERE group_type = 'kids' AND archived = 0"
+            "SELECT COUNT(*) AS n FROM clients WHERE group_type = 'kids' AND archived = 0 AND approved = 1"
         ).fetchone()["n"]
         archived = conn.execute(
             "SELECT COUNT(*) AS n FROM clients WHERE archived = 1"
@@ -578,7 +791,7 @@ def get_stats(month_start: str, month_end: str):
             """
             SELECT COUNT(DISTINCT s.client_id) AS n FROM subscriptions s
             JOIN clients c ON c.id = s.client_id
-            WHERE s.status = 'active' AND s.end_date >= ? AND c.archived = 0
+            WHERE s.status = 'active' AND s.end_date >= ? AND c.archived = 0 AND c.approved = 1
             """,
             (now,),
         ).fetchone()["n"]
@@ -598,7 +811,7 @@ def get_stats(month_start: str, month_end: str):
             """
             SELECT COUNT(DISTINCT s.client_id) AS n FROM subscriptions s
             JOIN clients c ON c.id = s.client_id
-            WHERE s.status = 'active' AND s.unlimited = 1 AND c.archived = 0
+            WHERE s.status = 'active' AND s.unlimited = 1 AND c.archived = 0 AND c.approved = 1
             """
         ).fetchone()["n"]
 
@@ -746,7 +959,7 @@ def latest_subscriptions_for_reminders():
             """
             SELECT s.*, c.telegram_id, c.full_name FROM subscriptions s
             JOIN clients c ON c.id = s.client_id
-            WHERE c.archived = 0
+            WHERE c.archived = 0 AND c.approved = 1
               AND s.unlimited = 0
               AND s.status = 'active'
               AND s.id = (

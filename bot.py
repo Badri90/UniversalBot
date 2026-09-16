@@ -213,7 +213,7 @@ async def add_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     telegram_id = int(context.args[0])
     full_name = " ".join(context.args[1:])
-    db.upsert_client(telegram_id, full_name)
+    db.create_client(telegram_id, full_name)
     await update.message.reply_text(f"Клиент {full_name} добавлен.")
 
 
