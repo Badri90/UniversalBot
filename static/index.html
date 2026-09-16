@@ -355,14 +355,6 @@
     align-items: baseline;
     margin-top: 6px;
   }
-  .visit-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .visit-chip {
-    font-size: 12px;
-    padding: 3px 8px;
-    border: 1px solid var(--paper-line);
-    border-radius: 3px;
-    color: var(--ash);
-  }
   .cal-head {
     display: flex;
     align-items: center;
@@ -571,13 +563,8 @@
       alreadyPending: "Ваша предыдущая заявка ещё на рассмотрении у тренера.",
       schedule: "Расписание",
       noSchedule: "Расписание пока не заполнено.",
-      attendance: "Посещения",
-      thisMonth: "в этом месяце",
-      visitsWord: "тренировок",
-      noVisits: "В этом месяце отметок пока нет.",
       belt: "Пояс",
       noBelt: "Пояс пока не присвоен",
-      stripesWord: "полосок",
       lastPromo: "Аттестация",
       months: ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"],
       dowShort: ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"],
@@ -626,13 +613,8 @@
       alreadyPending: "Your previous request is still awaiting the trainer's decision.",
       schedule: "Schedule",
       noSchedule: "The schedule has not been set yet.",
-      attendance: "Attendance",
-      thisMonth: "this month",
-      visitsWord: "sessions",
-      noVisits: "No check-ins recorded this month yet.",
       belt: "Belt",
       noBelt: "No belt assigned yet",
-      stripesWord: "stripes",
       lastPromo: "Promoted",
       months: ["January","February","March","April","May","June","July","August","September","October","November","December"],
       dowShort: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
@@ -808,24 +790,44 @@
     loadCalendar();
   }
 
+  // Детские пояса IBJJF двухцветные: половина полотна одного цвета, половина другого
   const BELT_COLORS = {
-    white: "#F5F3EE", grey: "#8A8A8A", yellow: "#E3C02B", orange: "#DE7C2A",
-    green: "#3F7D3A", blue: "#1F4FA8", purple: "#5B2E8C",
-    brown: "#5C3A21", black: "#1A1A1A",
+    white: "#F5F3EE",
+    grey_white: ["#F5F3EE", "#8A8A8A"], grey: "#8A8A8A", grey_black: ["#8A8A8A", "#121212"],
+    yellow_white: ["#F5F3EE", "#E3C02B"], yellow: "#E3C02B", yellow_black: ["#E3C02B", "#121212"],
+    orange_white: ["#F5F3EE", "#DE7C2A"], orange: "#DE7C2A", orange_black: ["#DE7C2A", "#121212"],
+    green_white: ["#F5F3EE", "#3F7D3A"], green: "#3F7D3A", green_black: ["#3F7D3A", "#121212"],
+    blue: "#1F4FA8", purple: "#5B2E8C", brown: "#5C3A21", black: "#1A1A1A",
   };
   const BELT_NAMES = {
-    ru: { white:"Белый", grey:"Серый", yellow:"Жёлтый", orange:"Оранжевый", green:"Зелёный",
+    ru: { white:"Белый",
+          grey_white:"Серо-белый", grey:"Серый", grey_black:"Серо-чёрный",
+          yellow_white:"Жёлто-белый", yellow:"Жёлтый", yellow_black:"Жёлто-чёрный",
+          orange_white:"Оранжево-белый", orange:"Оранжевый", orange_black:"Оранжево-чёрный",
+          green_white:"Зелёно-белый", green:"Зелёный", green_black:"Зелёно-чёрный",
           blue:"Синий", purple:"Фиолетовый", brown:"Коричневый", black:"Чёрный" },
-    en: { white:"White", grey:"Grey", yellow:"Yellow", orange:"Orange", green:"Green",
+    en: { white:"White",
+          grey_white:"Grey/White", grey:"Grey", grey_black:"Grey/Black",
+          yellow_white:"Yellow/White", yellow:"Yellow", yellow_black:"Yellow/Black",
+          orange_white:"Orange/White", orange:"Orange", orange_black:"Orange/Black",
+          green_white:"Green/White", green:"Green", green_black:"Green/Black",
           blue:"Blue", purple:"Purple", brown:"Brown", black:"Black" },
   };
+
+  function beltBackground(key) {
+    const c = BELT_COLORS[key] || "#8A8A8A";
+    if (Array.isArray(c)) {
+      // резкая граница ровно посередине, без размытия
+      return `linear-gradient(to right, ${c[0]} 0 50%, ${c[1]} 50% 100%)`;
+    }
+    return c;
+  }
 
   function beltHtml(data) {
     if (!data.belt) {
       return `<div class="label">${t("belt")}</div>
               <div class="status-badge status-none">${t("noBelt")}</div>`;
     }
-    const color = BELT_COLORS[data.belt] || "#8A8A8A";
     const name = (BELT_NAMES[lang] && BELT_NAMES[lang][data.belt]) || data.belt;
     const stripes = Array.from({ length: data.stripes || 0 })
       .map(() => '<span class="belt-stripe"></span>').join("");
@@ -835,7 +837,7 @@
       ? `<span class="sched-tag">${t("lastPromo")}: ${esc(data.belt_updated)}</span>` : "";
     return `
       <div class="label">${t("belt")}</div>
-      <div class="belt" style="background:${color};">
+      <div class="belt" style="background:${beltBackground(data.belt)};">
         <div class="${rankClass}">${stripes}</div>
       </div>
       <div class="belt-caption">
