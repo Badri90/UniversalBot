@@ -38,6 +38,7 @@ def init_db():
                 group_type TEXT NOT NULL DEFAULT 'adult',
                 birth_date TEXT,
                 note TEXT,
+                archived INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
             );
 
@@ -127,6 +128,8 @@ def init_db():
             conn.execute("ALTER TABLE clients ADD COLUMN stripes INTEGER NOT NULL DEFAULT 0")
         if "belt_updated" not in cols:
             conn.execute("ALTER TABLE clients ADD COLUMN belt_updated TEXT")
+        if "archived" not in cols:
+            conn.execute("ALTER TABLE clients ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
 
         sub_cols = [row["name"] for row in conn.execute("PRAGMA table_info(subscriptions)")]
         if "last_reminder_date" not in sub_cols:
@@ -198,12 +201,24 @@ def update_client_note(client_id: int, note: str):
         conn.execute("UPDATE clients SET note = ? WHERE id = ?", (note, client_id))
 
 
+def set_client_archived(client_id: int, archived: bool):
+    """
+    Архив вместо удаления: клиент пропадает из рабочих списков, но вся его
+    история (оплаты, посещения, пояс) сохраняется и его можно вернуть.
+    """
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE clients SET archived = ? WHERE id = ?",
+            (1 if archived else 0, client_id),
+        )
+
+
 def delete_client(client_id: int):
     with get_conn() as conn:
         conn.execute("DELETE FROM clients WHERE id = ?", (client_id,))
 
 
-def list_clients_with_subscription(group_type: str = None):
+def list_clients_with_subscription(group_type: str = None, archived: bool = False):
     """Для админ-панели мини-аппа: клиенты + их текущий активный абонемент (если есть)."""
     query = """
         SELECT c.id, c.full_name, c.telegram_id, c.group_type, c.birth_date, c.note,
@@ -217,13 +232,14 @@ def list_clients_with_subscription(group_type: str = None):
             ORDER BY end_date DESC LIMIT 1
         )
     """
-    params = ()
+    query += " WHERE c.archived = ?"
+    params = [1 if archived else 0]
     if group_type:
-        query += " WHERE c.group_type = ?"
-        params = (group_type,)
+        query += " AND c.group_type = ?"
+        params.append(group_type)
     query += " ORDER BY c.full_name"
     with get_conn() as conn:
-        return conn.execute(query, params).fetchall()
+        return conn.execute(query, tuple(params)).fetchall()
 
 
 # ---------- Заморозка абонемента ----------
@@ -420,7 +436,7 @@ def list_schedule(group_type: str = None):
         params = (group_type,)
     query += " ORDER BY day_of_week, start_time"
     with get_conn() as conn:
-        return conn.execute(query, params).fetchall()
+        return conn.execute(query, tuple(params)).fetchall()
 
 
 def add_schedule_entry(day_of_week: int, start_time: str, title: str,
@@ -526,11 +542,15 @@ def attendance_counts_for_period(date_from: str, date_to: str):
 
 # ---------- Пояса ----------
 
-def update_belt(client_id: int, belt: str, stripes: int):
+def update_belt(client_id: int, belt: str, stripes: int, belt_date: str = None):
+    """
+    belt_date — дата аттестации в формате YYYY-MM-DD. Необязательна:
+    если не указана, у клиента показывается только пояс, без даты.
+    """
     with get_conn() as conn:
         conn.execute(
             "UPDATE clients SET belt = ?, stripes = ?, belt_updated = ? WHERE id = ?",
-            (belt, stripes, datetime.now().isoformat(), client_id),
+            (belt, stripes, belt_date or None, client_id),
         )
 
 
@@ -540,18 +560,25 @@ def get_stats(month_start: str, month_end: str):
     """Сводка для админа: клиенты, активные абонементы, доход за период."""
     now = datetime.now().isoformat()
     with get_conn() as conn:
-        total = conn.execute("SELECT COUNT(*) AS n FROM clients").fetchone()["n"]
+        # архивные клиенты в текущих показателях не участвуют
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM clients WHERE archived = 0"
+        ).fetchone()["n"]
         adults = conn.execute(
-            "SELECT COUNT(*) AS n FROM clients WHERE group_type = 'adult'"
+            "SELECT COUNT(*) AS n FROM clients WHERE group_type = 'adult' AND archived = 0"
         ).fetchone()["n"]
         kids = conn.execute(
-            "SELECT COUNT(*) AS n FROM clients WHERE group_type = 'kids'"
+            "SELECT COUNT(*) AS n FROM clients WHERE group_type = 'kids' AND archived = 0"
+        ).fetchone()["n"]
+        archived = conn.execute(
+            "SELECT COUNT(*) AS n FROM clients WHERE archived = 1"
         ).fetchone()["n"]
 
         active = conn.execute(
             """
-            SELECT COUNT(DISTINCT client_id) AS n FROM subscriptions
-            WHERE status = 'active' AND end_date >= ?
+            SELECT COUNT(DISTINCT s.client_id) AS n FROM subscriptions s
+            JOIN clients c ON c.id = s.client_id
+            WHERE s.status = 'active' AND s.end_date >= ? AND c.archived = 0
             """,
             (now,),
         ).fetchone()["n"]
@@ -562,14 +589,16 @@ def get_stats(month_start: str, month_end: str):
             SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS payments
             FROM subscriptions
             WHERE start_date BETWEEN ? AND ? AND unlimited = 0
+              AND status != 'superseded'
             """,
             (month_start, month_end),
         ).fetchone()
 
         unlimited_count = conn.execute(
             """
-            SELECT COUNT(DISTINCT client_id) AS n FROM subscriptions
-            WHERE status = 'active' AND unlimited = 1
+            SELECT COUNT(DISTINCT s.client_id) AS n FROM subscriptions s
+            JOIN clients c ON c.id = s.client_id
+            WHERE s.status = 'active' AND s.unlimited = 1 AND c.archived = 0
             """
         ).fetchone()["n"]
 
@@ -593,6 +622,7 @@ def get_stats(month_start: str, month_end: str):
         "without_subscription": total - active,
         "revenue": revenue_row["total"],
         "payments": revenue_row["payments"],
+        "archived_clients": archived,
         "new_clients": new_clients,
         "visits": visits,
     }
@@ -611,6 +641,40 @@ def list_all_clients():
 
 
 # ---------- Абонементы ----------
+
+def supersede_active_subscriptions(client_id: int):
+    """
+    Помечает действующие абонементы клиента как отменённые.
+    Нужно при переводе на особые условия и обратно: иначе старая оплата
+    продолжала бы считаться в доходе, хотя абонемент уже не действует.
+    """
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE subscriptions SET status = 'superseded'
+            WHERE client_id = ? AND status = 'active' AND end_date >= ?
+            """,
+            (client_id, datetime.now().isoformat()),
+        )
+
+
+def list_client_subscriptions(client_id: int, limit: int = 24):
+    """История оплат клиента — чтобы тренер мог увидеть и удалить ошибочную."""
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT id, title, start_date, end_date, amount, status, unlimited
+            FROM subscriptions WHERE client_id = ?
+            ORDER BY start_date DESC LIMIT ?
+            """,
+            (client_id, limit),
+        ).fetchall()
+
+
+def delete_subscription(subscription_id: int):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM subscriptions WHERE id = ?", (subscription_id,))
+
 
 def add_subscription(client_id: int, title: str, payment_date: datetime,
                       months: int = 1, visits: int = None, amount: float = None,
@@ -682,10 +746,12 @@ def latest_subscriptions_for_reminders():
             """
             SELECT s.*, c.telegram_id, c.full_name FROM subscriptions s
             JOIN clients c ON c.id = s.client_id
-            WHERE s.unlimited = 0
+            WHERE c.archived = 0
+              AND s.unlimited = 0
+              AND s.status = 'active'
               AND s.id = (
                 SELECT id FROM subscriptions
-                WHERE client_id = s.client_id
+                WHERE client_id = s.client_id AND status = 'active'
                 ORDER BY end_date DESC LIMIT 1
             )
             """

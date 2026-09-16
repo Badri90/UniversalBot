@@ -234,7 +234,8 @@ def api_admin_clients():
         return jsonify({"error": "forbidden"}), 403
 
     group_type = request.args.get("group")  # 'adult' | 'kids' | None (все)
-    rows = db.list_clients_with_subscription(group_type)
+    archived = request.args.get("archived") == "1"
+    rows = db.list_clients_with_subscription(group_type, archived)
     now = datetime.now()
     result = []
     for c in rows:
@@ -263,6 +264,7 @@ def api_admin_clients():
             "unlimited": bool(c["unlimited"]),
             "belt": c["belt"],
             "stripes": c["stripes"],
+            "belt_date": c["belt_updated"],
             "sub_title": c["sub_title"],
             "sub_end_date": end_date,
             "visits_left": c["visits_left"],
@@ -301,6 +303,22 @@ def api_admin_edit_client():
         return jsonify({"error": "bad_request"}), 400
 
     db.update_client_name(client_id, full_name)
+    return jsonify({"ok": True})
+
+
+@flask_app.route("/api/admin/archive_client", methods=["POST"])
+def api_admin_archive_client():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+
+    client_id = body.get("client_id")
+    archived = bool(body.get("archived", True))
+    if not client_id:
+        return jsonify({"error": "bad_request"}), 400
+
+    db.set_client_archived(client_id, archived)
     return jsonify({"ok": True})
 
 
@@ -347,6 +365,11 @@ def api_admin_mark_payment():
         payment_date = datetime.strptime(payment_date_str, "%Y-%m-%d")
     except (ValueError, TypeError):
         return jsonify({"error": "bad_date"}), 400
+
+    # при смене типа абонемента прежний перестаёт действовать и не идёт в доход
+    current = db.get_active_subscription(client["id"])
+    if current and (unlimited or current["unlimited"]):
+        db.supersede_active_subscriptions(client["id"])
 
     db.add_subscription(client["id"], title, payment_date, months, visits, amount, unlimited)
     db.resolve_pending_activation_requests(client["id"])
@@ -696,6 +719,39 @@ def api_admin_attendance_toggle():
     return jsonify({"ok": True})
 
 
+@flask_app.route("/api/admin/payments")
+def api_admin_payments():
+    user = validate_init_data(request.args.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+    client_id = request.args.get("client_id")
+    if not client_id:
+        return jsonify({"error": "bad_request"}), 400
+    rows = db.list_client_subscriptions(int(client_id))
+    return jsonify({"payments": [{
+        "id": r["id"],
+        "title": r["title"],
+        "start_date": fmt_date(r["start_date"]),
+        "end_date": None if r["unlimited"] else fmt_date(r["end_date"]),
+        "amount": r["amount"],
+        "status": r["status"],
+        "unlimited": bool(r["unlimited"]),
+    } for r in rows]})
+
+
+@flask_app.route("/api/admin/payment_delete", methods=["POST"])
+def api_admin_payment_delete():
+    body = request.get_json(force=True)
+    user = validate_init_data(body.get("initData", ""))
+    if not require_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+    sub_id = body.get("subscription_id")
+    if not sub_id:
+        return jsonify({"error": "bad_request"}), 400
+    db.delete_subscription(sub_id)
+    return jsonify({"ok": True})
+
+
 # ---------------- API: пояса ----------------
 
 @flask_app.route("/api/admin/set_belt", methods=["POST"])
@@ -720,8 +776,15 @@ def api_admin_set_belt():
     if not client:
         return jsonify({"error": "client_not_found"}), 404
 
+    belt_date = (body.get("belt_date") or "").strip() or None
+    if belt_date:
+        try:
+            datetime.strptime(belt_date, "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"error": "bad_date"}), 400
+
     previous = (client["belt"], client["stripes"])
-    db.update_belt(client_id, belt, stripes)
+    db.update_belt(client_id, belt, stripes, belt_date)
 
     # поздравляем клиента, если пояс или число полосок изменились
     if belt and previous != (belt, stripes):
@@ -735,9 +798,12 @@ def api_admin_set_belt():
 
 
 BELT_LABELS = {
-    "white": "белый", "grey": "серый", "yellow": "жёлтый", "orange": "оранжевый",
-    "green": "зелёный", "blue": "синий", "purple": "фиолетовый",
-    "brown": "коричневый", "black": "чёрный",
+    "white": "белый",
+    "grey_white": "серо-белый", "grey": "серый", "grey_black": "серо-чёрный",
+    "yellow_white": "жёлто-белый", "yellow": "жёлтый", "yellow_black": "жёлто-чёрный",
+    "orange_white": "оранжево-белый", "orange": "оранжевый", "orange_black": "оранжево-чёрный",
+    "green_white": "зелёно-белый", "green": "зелёный", "green_black": "зелёно-чёрный",
+    "blue": "синий", "purple": "фиолетовый", "brown": "коричневый", "black": "чёрный",
 }
 
 
