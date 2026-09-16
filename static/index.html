@@ -414,6 +414,28 @@
     justify-content: space-between;
     font-size: 13px;
   }
+  .profile-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .profile-tabs::-webkit-scrollbar { display: none; }
+  .profile-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 7px 14px;
+    border-radius: 3px;
+    border: 1px solid var(--paper-line);
+    background: transparent;
+    color: var(--ash);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .profile-tab.active { background: var(--red); color: var(--bone); border-color: var(--red); }
+  .profile-add { border-style: dashed; }
+  .profile-tab.paused { opacity: 0.45; font-style: italic; }
   .admin-bar button {
     background: var(--red);
     color: var(--bone);
@@ -487,6 +509,7 @@
 </div>
 
 <div id="announcement" class="announcement"></div>
+<div class="profile-tabs" id="profileTabs" style="display:none;"></div>
 <div id="content" class="loading">…</div>
 
 <div class="footer-links" id="footerLinks"></div>
@@ -506,6 +529,14 @@
     <div class="label" id="activateDateLabelEl">Дата начала</div>
     <button type="button" class="date-field" id="activateDateBtn" onclick="openPicker('activate')"></button>
     <button id="activateSubmitBtn" class="primary-full" onclick="submitActivation()">Отправить заявку</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="pauseModalBg">
+  <div class="modal">
+    <div class="name" id="pauseModalTitle">Приостановить членство</div>
+    <div class="sched-tag" id="pauseModalText" style="display:block;margin-top:10px;line-height:1.5;"></div>
+    <button id="pauseConfirmBtn" class="primary-full" onclick="submitPause()">Отправить заявку</button>
   </div>
 </div>
 
@@ -561,6 +592,23 @@
       activateSent: "Заявка отправлена тренеру. Ждите подтверждения.",
       activateFail: "Не удалось отправить заявку. Попробуйте позже.",
       alreadyPending: "Ваша предыдущая заявка ещё на рассмотрении у тренера.",
+      profiles: "Профили",
+      addProfile: "Добавить профиль",
+      addProfileHint: "Например, если у вас занимается несколько детей.",
+      pauseBtn: "Приостановить членство",
+      pendingTitle: "Заявка на рассмотрении",
+      pendingText: "Тренер проверит вашу регистрацию и подтвердит её. Обычно это занимает немного времени — вы получите сообщение в этом боте.",
+      pausedTitle: "Членство приостановлено",
+      pausedText: "Ваша карточка в архиве. История посещений и оплат сохранена — нажмите «Возобновить», и тренер вернёт вас в группу.",
+      resumeBtn: "Возобновить",
+      resumeTitle: "Возобновить членство",
+      resumeText: "Заявку рассмотрит тренер. После одобрения карточка снова станет активной.",
+      resumeSent: "Заявка на возвращение отправлена тренеру.",
+      pauseTitle: "Приостановить членство",
+      pauseText: "Карточка будет скрыта до вашего возвращения. История посещений и оплат сохранится. Заявку рассмотрит тренер.",
+      pauseConfirm: "Отправить заявку",
+      pauseSent: "Заявка отправлена тренеру.",
+      pauseFail: "Не удалось отправить заявку. Попробуйте позже.",
       schedule: "Расписание",
       noSchedule: "Расписание пока не заполнено.",
       belt: "Пояс",
@@ -611,6 +659,23 @@
       activateSent: "Request sent to your trainer. Awaiting approval.",
       activateFail: "Couldn't send the request. Please try again later.",
       alreadyPending: "Your previous request is still awaiting the trainer's decision.",
+      profiles: "Profiles",
+      addProfile: "Add a profile",
+      addProfileHint: "For example, if you have more than one child training.",
+      pauseBtn: "Pause membership",
+      pendingTitle: "Awaiting approval",
+      pendingText: "The trainer will review and confirm your registration. It usually doesn't take long — you'll get a message in this bot.",
+      pausedTitle: "Membership paused",
+      pausedText: "Your profile is archived. Attendance and payment history are kept — tap “Resume” and the trainer will bring you back.",
+      resumeBtn: "Resume",
+      resumeTitle: "Resume membership",
+      resumeText: "The trainer reviews the request. Once approved, the profile becomes active again.",
+      resumeSent: "Your request to come back has been sent.",
+      pauseTitle: "Pause membership",
+      pauseText: "The profile will be hidden until you come back. Attendance and payment history are kept. The trainer reviews the request.",
+      pauseConfirm: "Send request",
+      pauseSent: "Request sent to your trainer.",
+      pauseFail: "Couldn't send the request. Please try again later.",
       schedule: "Schedule",
       noSchedule: "The schedule has not been set yet.",
       belt: "Belt",
@@ -629,10 +694,15 @@
   };
 
   const VIEW_AS = new URLSearchParams(location.search).get("as");
-  function viewAsParam() { return VIEW_AS ? "&as=" + encodeURIComponent(VIEW_AS) : ""; }
+  function viewAsParam() {
+    if (VIEW_AS) return "&as=" + encodeURIComponent(VIEW_AS);
+    return currentProfile ? "&profile=" + encodeURIComponent(currentProfile) : "";
+  }
 
   let lang = localStorage.getItem("gym_lang") || "ru";
   let lastData = null;
+  let currentProfile = null;
+  let addingProfile = false;
 
   function t(key) {
     return T[lang][key];
@@ -717,7 +787,9 @@
       ann.style.display = "block";
     }
 
-    if (!data.registered) {
+    renderProfiles(data.profiles, data.client_id);
+
+    if (!data.registered || addingProfile) {
       renderRegistrationForm();
       return;
     }
@@ -734,10 +806,12 @@
           <div class="value">${s.visits_left} ${t("of")} ${s.visits_total}</div>
         `;
       }
+      // название показываем, только если тренер его заполнил
+      const titleHtml = s.title ? `<div class="value">${esc(s.title)}</div>` : "";
       if (s.unlimited) {
         subHtml = `
           <div class="label">${t("subscription")}</div>
-          <div class="value">${esc(s.title)}</div>
+          ${titleHtml}
           <div><span class="status-badge status-unlimited">${t("unlimitedSub")}</span></div>
           <div class="sched-tag" style="margin-top:6px;">${t("unlimitedNote")}</div>
           ${visitsHtml}
@@ -745,7 +819,7 @@
       } else {
         subHtml = `
           <div class="label">${t("subscription")}</div>
-          <div class="value">${esc(s.title)}</div>
+          ${titleHtml}
           <div class="label">${t("validUntil")}</div>
           <div class="value">${s.end_date}</div>
           ${visitsHtml}
@@ -760,11 +834,41 @@
       ? `<span class="group-tag">Kids</span>`
       : `<span class="group-tag">Adult</span>`;
 
+    // регистрация ещё не подтверждена тренером
+    if (data.pending_approval && !data.viewing_as_admin) {
+      content.innerHTML = `
+        <div class="card id-card">
+          <div class="name">${esc(data.full_name)}</div>
+          ${groupTag}
+          <div class="label">${t("pendingTitle")}</div>
+          <div class="sched-tag" style="display:block;margin-top:6px;line-height:1.5;">${t("pendingText")}</div>
+        </div>
+      `;
+      return;
+    }
+
+    // приостановленная карточка: вместо абонемента предлагаем вернуться
+    if (data.archived && !data.viewing_as_admin) {
+      content.innerHTML = `
+        <div class="card id-card">
+          <div class="name">${esc(data.full_name)}</div>
+          ${groupTag}
+          <div class="label">${t("pausedTitle")}</div>
+          <div class="sched-tag" style="display:block;margin-top:6px;line-height:1.5;">${t("pausedText")}</div>
+          <button class="outline-full" onclick="openPauseModal(true)">${t("resumeBtn")}</button>
+        </div>
+      `;
+      return;
+    }
+
     let actionBtn = "";
     if (!data.subscription) {
       actionBtn = `<button class="outline-full" onclick="openActivateModal()">${t("activateBtn")}</button>`;
     } else if (!data.subscription.unlimited) {
       actionBtn = `<button class="secondary" onclick="openFreezeModal()">${t("freezeBtn")}</button>`;
+    }
+    if (!data.viewing_as_admin) {
+      actionBtn += `<button class="secondary" onclick="openPauseModal()">${t("pauseBtn")}</button>`;
     }
 
     content.innerHTML = `
@@ -887,6 +991,37 @@
 
   let selectedGroup = null;
 
+  function renderProfiles(profiles, activeId) {
+    const box = document.getElementById("profileTabs");
+    // при просмотре админом свои профили не показываем
+    if (VIEW_AS || !profiles || profiles.length === 0) {
+      box.style.display = "none";
+      return;
+    }
+    box.style.display = "flex";
+    box.innerHTML = profiles.map(p =>
+      `<button class="profile-tab ${p.archived ? "paused" : ""} ${!addingProfile && p.id === activeId ? "active" : ""}"
+               onclick="switchProfile(${p.id})">${esc(p.full_name)}</button>`
+    ).join("") +
+      `<button class="profile-tab profile-add ${addingProfile ? "active" : ""}"
+               onclick="startAddProfile()">+ ${t("addProfile")}</button>`;
+  }
+
+  function switchProfile(id) {
+    addingProfile = false;
+    currentProfile = id;
+    calMonth = null;
+    load();
+  }
+
+  function startAddProfile() {
+    addingProfile = true;
+    selectedGroup = null;
+    pickedDates.birth = "";
+    renderProfiles(lastData && lastData.profiles, null);
+    renderRegistrationForm();
+  }
+
   function renderRegistrationForm() {
     const content = document.getElementById("content");
     content.innerHTML = `
@@ -940,6 +1075,9 @@
       const data = await res.json();
       if (data.ok) {
         tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+        addingProfile = false;
+        currentProfile = data.client_id || null;
+        calMonth = null;
         load();
       } else {
         alert(t("registerFail"));
@@ -1077,6 +1215,46 @@
     loadCalendar();
   }
 
+  function activeClientId() {
+    return currentProfile || (lastData && lastData.client_id) || null;
+  }
+
+  let resumeMode = false;
+
+  function openPauseModal(resume) {
+    resumeMode = !!resume;
+    document.getElementById("pauseModalTitle").textContent = resumeMode ? t("resumeTitle") : t("pauseTitle");
+    document.getElementById("pauseModalText").textContent = resumeMode ? t("resumeText") : t("pauseText");
+    document.getElementById("pauseConfirmBtn").textContent = t("pauseConfirm");
+    document.getElementById("pauseModalBg").style.display = "flex";
+  }
+  document.getElementById("pauseModalBg").addEventListener("click", (e) => {
+    if (e.target.id === "pauseModalBg") document.getElementById("pauseModalBg").style.display = "none";
+  });
+
+  async function submitPause() {
+    const initData = (tg && tg.initData) || "";
+    try {
+      const res = await fetch("/api/pause_request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData, client_id: activeClientId() }),
+      });
+      const data = await res.json();
+      document.getElementById("pauseModalBg").style.display = "none";
+      if (data.ok) {
+        tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+        alert(resumeMode ? t("resumeSent") : t("pauseSent"));
+      } else if (data.error === "already_pending") {
+        alert(t("alreadyPending"));
+      } else {
+        alert(t("pauseFail"));
+      }
+    } catch (e) {
+      alert(t("networkError"));
+    }
+  }
+
   function openFreezeModal() {
     document.getElementById("freezeModalBg").style.display = "flex";
   }
@@ -1091,7 +1269,7 @@
       const res = await fetch("/api/freeze_request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ initData, days }),
+        body: JSON.stringify({ initData, days, client_id: activeClientId() }),
       });
       const data = await res.json();
       document.getElementById("freezeModalBg").style.display = "none";
@@ -1124,7 +1302,7 @@
       const res = await fetch("/api/activate_request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ initData, requested_date }),
+        body: JSON.stringify({ initData, requested_date, client_id: activeClientId() }),
       });
       const data = await res.json();
       document.getElementById("activateModalBg").style.display = "none";
