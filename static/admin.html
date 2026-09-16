@@ -249,6 +249,29 @@
     font-size: 14px;
     color: var(--bone);
   }
+  .sched-hint { color: var(--ash); font-size: 12px; margin-top: 6px; line-height: 1.4; }
+  .pay-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--paper-line);
+    font-size: 13px;
+  }
+  .pay-row:last-child { border-bottom: none; }
+  .pay-info { flex: 1; }
+  .pay-amount { font-family: 'Oswald', sans-serif; font-weight: 600; font-size: 15px; }
+  .pay-void { color: var(--ash); text-decoration: line-through; }
+  .pay-del {
+    background: transparent;
+    border: 1px solid rgba(208,31,31,0.35);
+    color: var(--red-bright);
+    border-radius: 3px;
+    padding: 5px 10px;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
   .check-line input { width: 20px; height: 20px; margin: 0; flex-shrink: 0; accent-color: var(--red); }
   .status-unlimited { background: rgba(163,21,21,0.22); color: var(--red-bright); }
   .modal-bg {
@@ -393,6 +416,7 @@
     <div class="subtab" id="bucketExpiring" onclick="setBucket('expiring')">Истекают</div>
     <div class="subtab" id="bucketOverdue" onclick="setBucket('overdue')">Истекли</div>
     <div class="subtab" id="bucketUnlimited" onclick="setBucket('unlimited')">Безлимит</div>
+    <div class="subtab" id="bucketArchive" onclick="setBucket('archive')">Архив</div>
   </div>
   <input id="searchInput" placeholder="Поиск по имени или фамилии" oninput="renderClients()" style="margin-bottom:10px;">
   <div class="subtabs">
@@ -479,6 +503,9 @@
       <option value="3">3</option>
       <option value="4">4</option>
     </select>
+    <div class="label">Дата аттестации (необязательно)</div>
+    <input id="bDate" type="date">
+    <div class="sched-hint">Если не заполнять, у клиента будет виден только пояс, без даты.</div>
     <button class="primary" onclick="submitBelt()">Сохранить</button>
   </div>
 </div>
@@ -554,7 +581,8 @@
     document.getElementById("bucketExpiring").classList.toggle("active", bucket === "expiring");
     document.getElementById("bucketOverdue").classList.toggle("active", bucket === "overdue");
     document.getElementById("bucketUnlimited").classList.toggle("active", bucket === "unlimited");
-    renderClients();
+    document.getElementById("bucketArchive").classList.toggle("active", bucket === "archive");
+    loadClients();   // архив грузится отдельным запросом, поэтому всегда перезапрос
   }
 
   function setGroup(group) {
@@ -573,7 +601,8 @@
   }
 
   async function loadClients() {
-    const q = currentGroup ? "&group=" + currentGroup : "";
+    let q = currentGroup ? "&group=" + currentGroup : "";
+    if (currentBucket === "archive") q += "&archived=1";
     const res = await fetch("/api/admin/clients?initData=" + encodeURIComponent(initData) + q);
     const data = await res.json();
 
@@ -591,7 +620,7 @@
     const searchTerm = (document.getElementById("searchInput").value || "").toLowerCase().trim();
 
     let list = allClients.filter(c => c.full_name.toLowerCase().includes(searchTerm));
-    if (currentBucket) {
+    if (currentBucket && currentBucket !== "archive") {
       list = list.filter(c => c.status === currentBucket);
     }
 
@@ -606,7 +635,9 @@
     }
 
     if (!allClients.length) {
-      view.innerHTML = '<div class="empty">Клиентов пока нет.<br>Попросите их написать боту /start.</div>';
+      view.innerHTML = currentBucket === "archive"
+        ? '<div class="empty">Архив пуст.</div>'
+        : '<div class="empty">Клиентов пока нет.<br>Попросите их написать боту /start.</div>';
       return;
     }
     if (!list.length) {
@@ -614,7 +645,7 @@
       return;
     }
 
-    view.innerHTML = list.map(c => {
+    const rendered = list.map(c => {
       let badgeText = "Нет абонемента";
       let badgeClass = "status-none";
       if (c.status === "unlimited") { badgeText = "Безлимитный"; badgeClass = "status-unlimited"; }
@@ -624,11 +655,8 @@
 
       const groupLabel = c.group_type === 'kids' ? 'Kids' : 'Adult';
       const birthLabel = c.birth_date ? c.birth_date.split('-').reverse().join('.') : '—';
-      const BELT_RU_ROW = { white:"белый", grey:"серый", yellow:"жёлтый", orange:"оранжевый",
-                            green:"зелёный", blue:"синий", purple:"фиолетовый",
-                            brown:"коричневый", black:"чёрный" };
       const beltText = c.belt
-        ? ` · пояс ${BELT_RU_ROW[c.belt] || c.belt}${c.stripes ? " (" + c.stripes + ")" : ""}`
+        ? ` · пояс ${(BELT_RU[c.belt] || c.belt).toLowerCase()}${c.stripes ? " (" + c.stripes + ")" : ""}`
         : "";
       const isOpen = expandedIds.has(c.id);
 
@@ -652,9 +680,17 @@
             <div class="row-buttons">
               <button class="small-secondary" style="width:100%;" onclick="viewClientCabinet(${c.id})">Открыть кабинет клиента</button>
             </div>
+            <div class="note-label">История оплат</div>
+            <div id="pay-${c.id}"><div class="sched-hint">…</div></div>
             <div class="row-buttons">
-              <button class="small-danger" style="width:100%;" onclick="deleteClient(${c.id})">Удалить клиента</button>
+              ${currentBucket === "archive"
+                ? `<button class="small-secondary" style="width:100%;" onclick="setArchived(${c.id}, false)">Вернуть из архива</button>`
+                : `<button class="small-danger" style="width:100%;" onclick="setArchived(${c.id}, true)">В архив</button>`}
             </div>
+            ${currentBucket === "archive" ? `
+            <div class="row-buttons">
+              <button class="small-danger" style="width:100%;" onclick="deleteClient(${c.id})">Удалить навсегда</button>
+            </div>` : ""}
             <div class="note-label">Заметка (видна только вам)</div>
             <textarea id="note-${c.id}" rows="2" placeholder="Например: платит наличными">${esc(c.note)}</textarea>
             <button class="small-secondary" style="width:100%;margin-top:8px;" onclick="saveNote(${c.id})">Сохранить заметку</button>
@@ -662,15 +698,64 @@
         </div>
       `;
     }).join("");
+
+    view.innerHTML = rendered;
+    // история оплат живёт в раскрытой карточке — после перерисовки грузим заново
+    expandedIds.forEach(id => {
+      if (document.getElementById("pay-" + id)) loadPayments(id);
+    });
   }
 
   function toggleExpand(clientId) {
     if (expandedIds.has(clientId)) {
       expandedIds.delete(clientId);
+      renderClients();
     } else {
       expandedIds.add(clientId);
+      renderClients();
     }
-    renderClients();
+  }
+
+  async function loadPayments(clientId) {
+    const box = document.getElementById("pay-" + clientId);
+    if (!box) return;
+    const res = await fetch("/api/admin/payments?initData=" + encodeURIComponent(initData)
+                            + "&client_id=" + clientId);
+    const data = await res.json();
+    if (data.error) { box.innerHTML = '<div class="sched-hint">Нет доступа.</div>'; return; }
+    if (!data.payments.length) {
+      box.innerHTML = '<div class="sched-hint">Оплат пока не было.</div>';
+      return;
+    }
+    box.innerHTML = data.payments.map(p => {
+      const voided = p.status === "superseded";
+      const period = p.unlimited ? "безлимитный" : `${p.start_date} — ${p.end_date}`;
+      const sum = p.unlimited ? "—" : (p.amount != null ? p.amount + " ₾" : "—");
+      return `
+        <div class="pay-row ${voided ? "pay-void" : ""}">
+          <div class="pay-info">
+            <div>${esc(p.title)}</div>
+            <div class="sched-hint" style="margin-top:2px;">${esc(period)}${voided ? " · отменён" : ""}</div>
+          </div>
+          <div class="pay-amount">${sum}</div>
+          <button class="pay-del" onclick="deletePayment(${p.id}, ${clientId})">Удалить</button>
+        </div>`;
+    }).join("");
+  }
+
+  async function deletePayment(subId, clientId) {
+    if (!confirm("Удалить эту запись об оплате? Она исчезнет из статистики.")) return;
+    const res = await fetch("/api/admin/payment_delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, subscription_id: subId }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      loadClients();
+    } else {
+      alert("Не удалось удалить.");
+    }
   }
 
   async function saveNote(clientId) {
@@ -744,9 +829,29 @@
     }
   }
 
+  async function setArchived(clientId, archived) {
+    const name = clientName(clientId);
+    const msg = archived
+      ? `Перенести ${name} в архив? История сохранится, клиента можно будет вернуть.`
+      : `Вернуть ${name} из архива в активный список?`;
+    if (!confirm(msg)) return;
+    const res = await fetch("/api/admin/archive_client", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, client_id: clientId, archived }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      expandedIds.delete(clientId);
+      loadClients();
+    } else {
+      alert("Не удалось изменить статус.");
+    }
+  }
+
   async function deleteClient(clientId) {
     const name = clientName(clientId);
-    if (!confirm(`Удалить ${name} из базы? Это действие необратимо.`)) return;
+    if (!confirm(`Удалить ${name} НАВСЕГДА? Вся история оплат и посещений будет стёрта без возможности восстановления.`)) return;
     const res = await fetch("/api/admin/delete_client", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1091,10 +1196,18 @@
   // ---------- Пояса ----------
 
   const BELTS_ADULT = ["white","blue","purple","brown","black"];
-  const BELTS_KIDS = ["white","grey","yellow","orange","green"];
-  const BELT_RU = { white:"Белый", grey:"Серый", yellow:"Жёлтый", orange:"Оранжевый",
-                    green:"Зелёный", blue:"Синий", purple:"Фиолетовый",
-                    brown:"Коричневый", black:"Чёрный" };
+  // детская система IBJJF: между цветами есть промежуточные двухцветные пояса
+  const BELTS_KIDS = ["white",
+                      "grey_white","grey","grey_black",
+                      "yellow_white","yellow","yellow_black",
+                      "orange_white","orange","orange_black",
+                      "green_white","green","green_black"];
+  const BELT_RU = { white:"Белый",
+                    grey_white:"Серо-белый", grey:"Серый", grey_black:"Серо-чёрный",
+                    yellow_white:"Жёлто-белый", yellow:"Жёлтый", yellow_black:"Жёлто-чёрный",
+                    orange_white:"Оранжево-белый", orange:"Оранжевый", orange_black:"Оранжево-чёрный",
+                    green_white:"Зелёно-белый", green:"Зелёный", green_black:"Зелёно-чёрный",
+                    blue:"Синий", purple:"Фиолетовый", brown:"Коричневый", black:"Чёрный" };
 
   function openBeltModal(clientId) {
     currentClientId = clientId;
@@ -1107,6 +1220,7 @@
       belts.map(b => `<option value="${b}">${BELT_RU[b]}</option>`).join("");
     document.getElementById("bBelt").value = c.belt || "";
     document.getElementById("bStripes").value = String(c.stripes || 0);
+    document.getElementById("bDate").value = (c.belt_date || "").slice(0, 10);
     document.getElementById("beltModalBg").style.display = "flex";
   }
   document.getElementById("beltModalBg").addEventListener("click", (e) => {
@@ -1122,6 +1236,7 @@
         client_id: currentClientId,
         belt: document.getElementById("bBelt").value,
         stripes: parseInt(document.getElementById("bStripes").value, 10),
+        belt_date: document.getElementById("bDate").value,
       }),
     });
     const data = await res.json();
@@ -1161,6 +1276,7 @@
         <div class="stat-box"><div class="n">${s.active_subscriptions}</div><div class="k">активных абонементов</div></div>
         <div class="stat-box"><div class="n">${s.without_subscription}</div><div class="k">без абонемента</div></div>
         <div class="stat-box"><div class="n">${s.unlimited_clients}</div><div class="k">на особых условиях</div></div>
+        <div class="stat-box"><div class="n">${s.archived_clients}</div><div class="k">в архиве</div></div>
         <div class="stat-box"><div class="n">${s.new_clients}</div><div class="k">новых за месяц</div></div>
         <div class="stat-box"><div class="n">${s.visits}</div><div class="k">посещений за месяц</div></div>
         <div class="stat-box"><div class="n">${s.adults}</div><div class="k">взрослых всего</div></div>
