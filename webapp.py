@@ -328,7 +328,16 @@ def api_admin_edit_client():
     if not client_id or len(full_name) < 2:
         return jsonify({"error": "bad_request"}), 400
 
-    db.update_client_name(client_id, full_name)
+    birth_date = (body.get("birth_date") or "").strip() or None
+    if birth_date:
+        try:
+            born = datetime.strptime(birth_date, "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"error": "bad_date"}), 400
+        if born > datetime.now():
+            return jsonify({"error": "future_date"}), 400
+
+    db.update_client_profile(client_id, full_name, birth_date)
     return jsonify({"ok": True})
 
 

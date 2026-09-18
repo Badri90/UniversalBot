@@ -354,6 +354,19 @@ def update_client_name(client_id: int, full_name: str):
         conn.execute("UPDATE clients SET full_name = ? WHERE id = ?", (full_name, client_id))
 
 
+def update_client_profile(client_id: int, full_name: str, birth_date: str = None):
+    """
+    Правка анкеты: имя и дата рождения. Дата нужна не только для справки —
+    от неё зависит доступность перевода во взрослую группу (с 16 лет),
+    поэтому её должно быть можно исправить, если клиент ошибся.
+    """
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE clients SET full_name = ?, birth_date = ? WHERE id = ?",
+            (full_name, birth_date or None, client_id),
+        )
+
+
 def update_client_note(client_id: int, note: str):
     with get_conn() as conn:
         conn.execute("UPDATE clients SET note = ? WHERE id = ?", (note, client_id))
