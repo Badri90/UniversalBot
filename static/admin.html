@@ -512,8 +512,12 @@
 
 <div class="modal-bg" id="editModalBg">
   <div class="modal">
-    <h2>Редактировать имя</h2>
-    <input id="eName" placeholder="Имя и фамилия">
+    <h2>Редактировать анкету</h2>
+    <div class="label">Имя и фамилия</div>
+    <input id="eName" placeholder="Имя Фамилия">
+    <div class="label">Дата рождения</div>
+    <input id="eBirth" type="date">
+    <div class="sched-hint">От даты рождения зависит перевод во взрослую группу (с 16 лет).</div>
     <button class="primary" onclick="submitEdit()">Сохранить</button>
   </div>
 </div>
@@ -687,10 +691,9 @@
                 ? `<button class="small-secondary" style="width:100%;" onclick="setArchived(${c.id}, false)">Вернуть из архива</button>`
                 : `<button class="small-danger" style="width:100%;" onclick="setArchived(${c.id}, true)">В архив</button>`}
             </div>
-            ${currentBucket === "archive" ? `
             <div class="row-buttons">
-              <button class="small-danger" style="width:100%;" onclick="deleteClient(${c.id})">Удалить навсегда</button>
-            </div>` : ""}
+              <button class="small-danger" style="width:100%;" onclick="deleteClient(${c.id})">Удалить анкету навсегда</button>
+            </div>
             <div class="note-label">Заметка (видна только вам)</div>
             <textarea id="note-${c.id}" rows="2" placeholder="Например: платит наличными">${esc(c.note)}</textarea>
             <button class="small-secondary" style="width:100%;margin-top:8px;" onclick="saveNote(${c.id})">Сохранить заметку</button>
@@ -858,7 +861,9 @@
 
   function openEditModal(clientId) {
     currentClientId = clientId;
-    document.getElementById("eName").value = clientName(clientId);
+    const c = allClients.find(x => x.id === clientId);
+    document.getElementById("eName").value = c ? c.full_name : "";
+    document.getElementById("eBirth").value = c && c.birth_date ? c.birth_date.slice(0, 10) : "";
     document.getElementById("editModalBg").style.display = "flex";
   }
   document.getElementById("editModalBg").addEventListener("click", (e) => {
@@ -866,16 +871,26 @@
   });
 
   async function submitEdit() {
-    const full_name = document.getElementById("eName").value;
+    const full_name = document.getElementById("eName").value.trim();
+    const birth_date = document.getElementById("eBirth").value;
+    if (full_name.length < 2) {
+      alert("Введите имя и фамилию.");
+      return;
+    }
     const res = await fetch("/api/admin/edit_client", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, client_id: currentClientId, full_name }),
+      body: JSON.stringify({ initData, client_id: currentClientId, full_name, birth_date }),
     });
     const data = await res.json();
     if (data.ok) {
       document.getElementById("editModalBg").style.display = "none";
+      tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
       loadClients();
+    } else if (data.error === "future_date") {
+      alert("Дата рождения не может быть в будущем.");
+    } else if (data.error === "bad_date") {
+      alert("Неверная дата рождения.");
     } else {
       alert("Ошибка: " + (data.error || "неизвестная"));
     }
@@ -903,7 +918,11 @@
 
   async function deleteClient(clientId) {
     const name = clientName(clientId);
-    if (!confirm(`Удалить ${name} НАВСЕГДА? Вся история оплат и посещений будет стёрта без возможности восстановления.`)) return;
+    // удаление необратимо, поэтому подтверждаем дважды и напоминаем про архив
+    if (!confirm(`Удалить анкету «${name}» НАВСЕГДА?\n\n`
+                 + "Вся история оплат и посещений будет стёрта без возможности восстановления.\n\n"
+                 + "Если человек просто перестал ходить — лучше «В архив»: данные сохранятся.")) return;
+    if (!confirm(`Точно удалить «${name}»? Отменить это будет нельзя.`)) return;
     const res = await fetch("/api/admin/delete_client", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1181,10 +1200,10 @@
                       "orange_white","orange","orange_black",
                       "green_white","green","green_black"];
   const BELT_RU = { white:"Белый",
-                    grey_white:"Серо-белый", grey:"Серый", grey_black:"Серо-чёрный",
-                    yellow_white:"Жёлто-белый", yellow:"Жёлтый", yellow_black:"Жёлто-чёрный",
-                    orange_white:"Оранжево-белый", orange:"Оранжевый", orange_black:"Оранжево-чёрный",
-                    green_white:"Зелёно-белый", green:"Зелёный", green_black:"Зелёно-чёрный",
+                    grey_white:"Серый с белой полосой", grey:"Серый", grey_black:"Серый с чёрной полосой",
+                    yellow_white:"Жёлтый с белой полосой", yellow:"Жёлтый", yellow_black:"Жёлтый с чёрной полосой",
+                    orange_white:"Оранжевый с белой полосой", orange:"Оранжевый", orange_black:"Оранжевый с чёрной полосой",
+                    green_white:"Зелёный с белой полосой", green:"Зелёный", green_black:"Зелёный с чёрной полосой",
                     blue:"Синий", purple:"Фиолетовый", brown:"Коричневый", black:"Чёрный" };
 
   function openBeltModal(clientId) {
