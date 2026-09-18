@@ -895,36 +895,42 @@
   }
 
   // Детские пояса IBJJF двухцветные: половина полотна одного цвета, половина другого
-  const BELT_COLORS = {
+  // Детские пояса IBJJF: цвет группы, а поверх него белая или чёрная полоса
+  // по центру вдоль всей длины пояса (регламент IBJJF), а не две половины.
+  const BELT_BASE = {
     white: "#F5F3EE",
-    grey_white: ["#F5F3EE", "#8A8A8A"], grey: "#8A8A8A", grey_black: ["#8A8A8A", "#121212"],
-    yellow_white: ["#F5F3EE", "#E3C02B"], yellow: "#E3C02B", yellow_black: ["#E3C02B", "#121212"],
-    orange_white: ["#F5F3EE", "#DE7C2A"], orange: "#DE7C2A", orange_black: ["#DE7C2A", "#121212"],
-    green_white: ["#F5F3EE", "#3F7D3A"], green: "#3F7D3A", green_black: ["#3F7D3A", "#121212"],
+    grey_white: "#8A8A8A", grey: "#8A8A8A", grey_black: "#8A8A8A",
+    yellow_white: "#E3C02B", yellow: "#E3C02B", yellow_black: "#E3C02B",
+    orange_white: "#DE7C2A", orange: "#DE7C2A", orange_black: "#DE7C2A",
+    green_white: "#3F7D3A", green: "#3F7D3A", green_black: "#3F7D3A",
     blue: "#1F4FA8", purple: "#5B2E8C", brown: "#5C3A21", black: "#1A1A1A",
+  };
+  const BELT_BAR = {
+    grey_white: "#F5F3EE", grey_black: "#141414",
+    yellow_white: "#F5F3EE", yellow_black: "#141414",
+    orange_white: "#F5F3EE", orange_black: "#141414",
+    green_white: "#F5F3EE", green_black: "#141414",
   };
   const BELT_NAMES = {
     ru: { white:"Белый",
-          grey_white:"Серо-белый", grey:"Серый", grey_black:"Серо-чёрный",
-          yellow_white:"Жёлто-белый", yellow:"Жёлтый", yellow_black:"Жёлто-чёрный",
-          orange_white:"Оранжево-белый", orange:"Оранжевый", orange_black:"Оранжево-чёрный",
-          green_white:"Зелёно-белый", green:"Зелёный", green_black:"Зелёно-чёрный",
+          grey_white:"Серый с белой полосой", grey:"Серый", grey_black:"Серый с чёрной полосой",
+          yellow_white:"Жёлтый с белой полосой", yellow:"Жёлтый", yellow_black:"Жёлтый с чёрной полосой",
+          orange_white:"Оранжевый с белой полосой", orange:"Оранжевый", orange_black:"Оранжевый с чёрной полосой",
+          green_white:"Зелёный с белой полосой", green:"Зелёный", green_black:"Зелёный с чёрной полосой",
           blue:"Синий", purple:"Фиолетовый", brown:"Коричневый", black:"Чёрный" },
     en: { white:"White",
-          grey_white:"Grey/White", grey:"Grey", grey_black:"Grey/Black",
-          yellow_white:"Yellow/White", yellow:"Yellow", yellow_black:"Yellow/Black",
-          orange_white:"Orange/White", orange:"Orange", orange_black:"Orange/Black",
-          green_white:"Green/White", green:"Green", green_black:"Green/Black",
+          grey_white:"Grey / white bar", grey:"Grey", grey_black:"Grey / black bar",
+          yellow_white:"Yellow / white bar", yellow:"Yellow", yellow_black:"Yellow / black bar",
+          orange_white:"Orange / white bar", orange:"Orange", orange_black:"Orange / black bar",
+          green_white:"Green / white bar", green:"Green", green_black:"Green / black bar",
           blue:"Blue", purple:"Purple", brown:"Brown", black:"Black" },
   };
 
   function beltBackground(key) {
-    const c = BELT_COLORS[key] || "#8A8A8A";
-    if (Array.isArray(c)) {
-      // резкая граница ровно посередине, без размытия
-      return `linear-gradient(to right, ${c[0]} 0 50%, ${c[1]} 50% 100%)`;
-    }
-    return c;
+    const base = BELT_BASE[key] || "#8A8A8A";
+    const bar = BELT_BAR[key];
+    if (!bar) return base;
+    return `linear-gradient(to bottom, ${base} 0 33%, ${bar} 33% 67%, ${base} 67% 100%)`;
   }
 
   function beltHtml(data) {
